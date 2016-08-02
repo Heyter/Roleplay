@@ -1,0 +1,33 @@
+"jobs"
+{
+	"idlejob" "idle"				// DONT TOUCH - UNEMPLOYED JOB
+	"idlerank" "idle"				// DONT TOUCH - UNEMPLOYED JOB
+	
+	"idle"
+	{
+		"name" "Unemployed"
+		"idle"
+		{
+			"name" "Unempoloyed"
+		}
+	}
+	
+	"Civilian"
+	{
+		"Fuck"
+		{
+			"name" "Unemployed"
+			"tool" "weapon_awp"
+			"team" "3"
+		}
+	}
+	
+	"Main"
+	{
+		"Sucker"
+		{
+			"tool" "weapon_deagle"
+			"team" "2"
+		}
+	}
+}
