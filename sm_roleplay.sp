@@ -4,6 +4,11 @@
 #include <cstrike>
 #pragma newdecls required
 #define IDSIZE 32
+
+// macross
+//#define RemoveJob(%1) SetClientJob(%1, "", ""), CS_SwitchTeam(%1, CS_TEAM_T)
+//#define IsHaveJob(%1) (g_jobid[%1][0] != '\0')
+
 Database g_db;
 bool db_mysql, started;
 char db_prefix[15] = "rp_",
@@ -11,7 +16,7 @@ char db_prefix[15] = "rp_",
 
 ConVar Database_prefix;
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
-	g_jobTarget[MAXPLAYERS + 1];
+	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1];
 
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE],
 	g_sBuffer[MAX_NAME_LENGTH];
@@ -24,9 +29,11 @@ Menu g_jobsmenu;
 
 // * KeyValues - settings.txt * //
 float fChatDistance;
-int iRWeapons, iFog;
-char atm_model[PLATFORM_MAX_PATH], money_model[PLATFORM_MAX_PATH];
+bool iRWeapons, iFog;
 KeyValues g_settingsKV;
+
+// * Global string - keyvalues * //
+char model[PLATFORM_MAX_PATH], atm_model[PLATFORM_MAX_PATH], money_model[PLATFORM_MAX_PATH];
 
 char Forbidden_Commands[][] = {
     "explode",		"kill",			"coverme",		"takepoint",
@@ -41,16 +48,15 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "0.01",
+	version = "alpha 0.02",
+	url = "https://github.com/Heyter/Roleplay",
 };
 
 public void OnPluginStart(){
 	// * Database * //
 	DB_PreConnect();
 	
-	Database_prefix = CreateConVar("sm_rp_dbprefix", db_prefix, "Prefix database");
-	Database_prefix.GetString(db_prefix, sizeof(db_prefix));
-	Database_prefix.AddChangeHook(CvarChange);
+	RegCvars();
 	
 	for (int i = 0; i < sizeof(Forbidden_Commands); i++){
 		AddCommandListener(ForbiddenCommands, Forbidden_Commands[i]);
@@ -74,8 +80,16 @@ public void OnPluginStart(){
 	RegAdminCmd("sm_reloadjobs", Cmd_ReloadJobs, ADMFLAG_ROOT, "Reload config jobs.txt");
 	RegAdminCmd("sm_unemployed", sm_unemployed, ADMFLAG_ROOT, "Set unemployed for player");
 	RegAdminCmd("sm_givemoney", sm_givemoney, ADMFLAG_ROOT, "Give money");
+	RegAdminCmd("sm_setmoney", sm_setmoney, ADMFLAG_ROOT, "Set money");
+	RegAdminCmd("sm_givebank", sm_givebank, ADMFLAG_ROOT, "Give money in bank");
+	RegAdminCmd("sm_setbank", sm_setbank, ADMFLAG_ROOT, "Set money in bank");
+	RegAdminCmd("sm_dbsave", sm_dbsave, ADMFLAG_ROOT, "Force Server DB Save");
 	
+	HookEvent("round_start", Event_RoundStart);
+	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Pre);
+	
+	CreateTimer(1.0, OnEverySecond, _, TIMER_REPEAT);
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max){
@@ -116,6 +130,26 @@ public int NativeSetClientBank(Handle plugin, int numParams){
 
 public int Native_RP_RemoveWeapon(Handle plugin, int numParams){
     return RemoveWeapon(GetNativeCell(1));
+}
+
+public void OnClientPutInServer(int client) {
+	if (!RP_IsStarted()) return;
+	
+	ResetVariables(client);
+	DB_OnClientPutInServer(client);
+}
+
+public void OnClientDisconnect(int client){
+	if (!RP_IsStarted()) {
+		return;
+	}
+	DB_SaveClient(client);
+}
+
+public void OnMapStart(){
+	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+	else if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
+	else if (!IsModelPrecached(model)) PrecacheModel(model, true);
 }
 
 public void CvarChange(ConVar convar, const char[] oldValue, const char[] newValue) {
@@ -383,13 +417,6 @@ void DB_SaveClient(int client, DBPriority prio = DBPrio_Normal) {
 	DB_SaveClientInfo(g_db, client, prio);
 }
 
-public void OnClientDisconnect(int client){
-	if (!RP_IsStarted()) {
-		return;
-	}
-	DB_SaveClient(client);
-}
-
 void DB_SaveClientInfo(Database db, int client, DBPriority prio = DBPrio_Normal) {
 	char query[512],
 		 jobname[MAX_NAME_LENGTH],
@@ -446,13 +473,6 @@ void RP_Start() {
 
 stock bool RP_IsStarted() {
 	return started;
-}
-
-public void OnClientPutInServer(int client) {
-	if (!RP_IsStarted()) return;
-	
-	ResetVariables(client);
-	DB_OnClientPutInServer(client);
 }
 
 public bool Client_SteamID(int client, char[] steam, int maxlen) {
@@ -578,15 +598,6 @@ void BuildJobsMenu()
 	else SetFailState("File don't contain jobs");
 }
 
-public Action Cmd_ReloadJobs(int client, int args)
-{
-	delete g_kv;
-	LoadKVJobs();
-	BuildJobsMenu();
-
-	return Plugin_Handled;
-}
-
 void ShowJobTargetMenu(int client)
 {
 	static Menu menu = null;
@@ -621,14 +632,6 @@ public int Menu_JobTarget(Menu menu, MenuAction action, int param1, int param2)
 			g_jobsmenu.Display(param1, MENU_TIME_FOREVER);
 		}
 	}
-}
-
-public Action Cmd_Jobs(int client, int args)
-{
-	if (client)
-		ShowJobTargetMenu(client);
-
-	return Plugin_Handled;
 }
 
 public int Menu_Jobs(Menu menu, MenuAction action, int param1, int param2)
@@ -698,21 +701,6 @@ void SetClientJob(int client, const char[] job, const char[] rank)
 	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
 }
 
-public Action Cmd_Tool(int client, int args)
-{
-	if (client && IsPlayerAlive(client) && !RP_IsUnemployed(client)) {
-		/*char branch[64], tool[32];
-		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch, tool, sizeof(tool));
-		if (tool[0] == '\0')
-			ThrowError("Job \"%s-%s\" don't contain tool key", g_jobid[client], g_rankid[client]);
-		GivePlayerItem(client, tool);*/
-		GiveKVsettings(client);
-	}
-
-	return Plugin_Handled;
-}
-
 void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
 {
 	g_kv.JumpToKey(g_jobid[client]);
@@ -720,39 +708,6 @@ void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxl
 	g_kv.JumpToKey(g_rankid[client]);
 	g_kv.GetString("name", rank, rankMaxlength, g_rankid[client]);
 	g_kv.Rewind();
-}
-
-public Action Cmd_MyJob(int client, int args)
-{
-	if (client) {
-		char JobName[64], RankName[64];
-		GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
-		PrintToChat(client, "Your Job: %s \nRank: %s", JobName, RankName);
-	}
-
-	return Plugin_Handled;
-}
-
-public Action sm_unemployed(int client, int args){
-	if (client && IsClientInGame(client)){
-		if (args != 1){
-			ReplyToCommand(client, "Usage: sm_unemployed <steamid>");
-			return Plugin_Handled;
-		}
-		
-		char arg[64];
-		GetCmdArg(1, arg, sizeof(arg));
-		int target = Client_FindBySteamId(arg);
-		
-		if (target != -1 && IsClientInGame(target)){
-			if (!RP_IsUnemployed(target)){
-				RP_RemoveJob(target);
-				PrintToChat(target, "ADMIN: Вы теперь безработный");
-				PrintToChat(client, "%N теперь безработный", target);
-			} else PrintToChat(client, "%N уже безработный", target);
-		} else PrintToChat(client, "%N не в игре", target);
-	}
-	return Plugin_Handled;
 }
 
 void GiveKVsettings(int client){
@@ -764,15 +719,12 @@ void GiveKVsettings(int client){
 			PrintToChat(client, "Для вашей структуры нет оружия!");
 		GivePlayerItem(client, tool);
 		
-		char branch_model[64], model[128];
+		char branch_model[64];
 		FormatEx(branch_model, sizeof(branch_model), "%s/%s/model", g_jobid[client], g_rankid[client]);
 		g_kv.GetString(branch_model, model, sizeof(model));
 		if (model[0] == '\0')
 			PrintToChat(client, "Для вашей структуры нет скина!");
-		if (!IsModelPrecached(model)){
-			PrecacheModel(model, true);			// GetSequenceLinearMotion
-			SetEntityModel(client, model);		// Precache
-		} else SetEntityModel(client, model);	// No Precache
+		SetEntityModel(client, model);
 		
 		char branch_team[64]; int team;
 		FormatEx(branch_team, sizeof(branch_team), "%s/%s/team", g_jobid[client], g_rankid[client]);
@@ -799,22 +751,11 @@ void LoadKVSettings(){
 		{
 			g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
 			g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
-			fChatDistance = g_settingsKV.GetFloat("localchat_distance", 500.0);
-			iRWeapons = g_settingsKV.GetNum("remove_weapon", 1);
-			iFog = g_settingsKV.GetNum("turn_fog", 0);
-			
-			
-			if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
-			else if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
-			if (iRWeapons < 0) iRWeapons = 0;
+			fChatDistance = view_as<float>(g_settingsKV.GetFloat("localchat_distance", 500.0));
+			iRWeapons = view_as<bool>(g_settingsKV.GetNum("remove_weapon", 1));
+			iFog = view_as<bool>(g_settingsKV.GetNum("turn_fog", 0));
 		} while (g_settingsKV.GotoNextKey());
 	}
-}
-
-public Action sm_ReloadSettings(int client, int args){
-	delete g_settingsKV;
-	LoadKVSettings();
-	return Plugin_Handled;
 }
 
 ///////////////
@@ -871,6 +812,187 @@ public Action Chat_Say(int client, const char[] command, int args){
 	return Plugin_Continue;
 }
 
+stock bool RemoveWeapon(int client){
+	if (IsClientInGame(client)){
+		int entity = CreateEntityByName("player_weaponstrip");
+		if (AcceptEntityInput(entity, "strip", client) && AcceptEntityInput(entity, "kill")){
+			return true;
+		}
+	}
+	return false;
+}
+
+stock float Entity_Distance(int ent1, int ent2) {
+	float orig1[3], orig2[3];
+	
+	GetEntPropVector(ent1, Prop_Send, "m_vecOrigin", orig1);
+	GetEntPropVector(ent2, Prop_Send, "m_vecOrigin", orig2);
+	
+	return GetVectorDistance(orig1, orig2);
+}
+
+stock bool Drop_Money(int client, int amount){
+	int ent;
+	if((ent = CreateEntityByName("prop_physics")) != -1){
+		float origin[3];
+		GetClientEyePosition(client, origin);
+		
+		TeleportEntity(ent, origin, NULL_VECTOR, NULL_VECTOR);
+		
+		char TargetName[32];
+		Format(TargetName, sizeof(TargetName), "%i", amount);
+		
+		DispatchKeyValue(ent, "model", money_model);
+		DispatchKeyValue(ent, "physicsmode", "2");
+		DispatchKeyValue(ent, "massScale", "8.0");
+		DispatchKeyValue(ent, "targetname", TargetName);
+		DispatchSpawn(ent);
+		
+		SetEntityMoveType(ent, MOVETYPE_VPHYSICS);
+		
+		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 8);
+		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 11);
+		return true;
+	}
+	return false;
+}
+
+stock bool CreateProp(float[] pos, const char[] name) {
+	int ent;
+	if ((ent = CreateEntityByName("prop_physics_override")) != -1) {
+		char targetname[64];
+		FormatEx(targetname, sizeof(targetname), "%s", name, ent);
+
+		char sModel[PLATFORM_MAX_PATH];
+		if (StrEqual(name, "atm")) {
+			strcopy(sModel, sizeof(sModel), atm_model);
+		}
+		else {
+			LogError("This prop name is not supported (%s)", name);
+			return false;
+		}
+		DispatchKeyValue(ent, "model", sModel);
+		DispatchKeyValue(ent, "physicsmode", "2");
+		DispatchKeyValue(ent, "massScale", "50.0");
+		DispatchKeyValue(ent, "targetname", targetname);
+		DispatchKeyValue(ent, "spawnflags", "0");
+		DispatchSpawn(ent);
+
+		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 152);
+		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
+		SetEntProp(ent, Prop_Data, "m_takedamage", 0, 1);
+
+		AcceptEntityInput(ent, "DisableMotion", -1, -1, 0);
+		SetEntityMoveType(ent, MOVETYPE_NONE);
+
+		float posa[3], angle[3]; ;
+		posa[0] = pos[0]; posa[1] = pos[1]; posa[2] = pos[2];
+		angle[0] = pos[3]; angle[1] = pos[4]; angle[2] = pos[5];
+		TeleportEntity(ent, posa, angle, NULL_VECTOR);
+		return true;
+	}
+	return false;
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast){
+	if (iFog){
+		int ent;
+		if ((ent = FindEntityByClassname(-1, "env_fog_controller")) != -1) {
+			AcceptEntityInput(ent, "TurnOff");
+		}
+	}
+}
+
+public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast){
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (iRWeapons) RemoveWeapon(client);
+}
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	char sRespawn[64]; int tRespawn;
+	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
+	tRespawn = g_kv.GetNum(sRespawn, 10);
+	RP_RespawnTime[client] = tRespawn;
+}
+
+void RegCvars(){
+	Database_prefix = CreateConVar("sm_rp_dbprefix", db_prefix, "Prefix database");
+	Database_prefix.GetString(db_prefix, sizeof(db_prefix));
+	Database_prefix.AddChangeHook(CvarChange);
+}
+
+public Action Cmd_MyJob(int client, int args)
+{
+	if (client) {
+		char JobName[64], RankName[64];
+		GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
+		PrintToChat(client, "Your Job: %s \nRank: %s", JobName, RankName);
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Cmd_ReloadJobs(int client, int args)
+{
+	delete g_kv;
+	LoadKVJobs();
+	BuildJobsMenu();
+
+	return Plugin_Handled;
+}
+
+public Action Cmd_Tool(int client, int args)
+{
+	if (client && IsPlayerAlive(client) && !RP_IsUnemployed(client)) {
+		/*char branch[64], tool[32];
+		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
+		g_kv.GetString(branch, tool, sizeof(tool));
+		if (tool[0] == '\0')
+			ThrowError("Job \"%s-%s\" don't contain tool key", g_jobid[client], g_rankid[client]);
+		GivePlayerItem(client, tool);*/
+		GiveKVsettings(client);
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Cmd_Jobs(int client, int args)
+{
+	if (client)
+		ShowJobTargetMenu(client);
+
+	return Plugin_Handled;
+}
+
+public Action sm_unemployed(int client, int args){
+	if (client && IsClientInGame(client)){
+		if (args != 1){
+			ReplyToCommand(client, "Usage: sm_unemployed <steamid>");
+			return Plugin_Handled;
+		}
+		
+		char arg[64];
+		GetCmdArg(1, arg, sizeof(arg));
+		int target = Client_FindBySteamId(arg);
+		
+		if (target != -1 && IsClientInGame(target)){
+			if (!RP_IsUnemployed(target)){
+				RP_RemoveJob(target);
+				PrintToChat(target, "ADMIN: Вы теперь безработный");
+				PrintToChat(client, "%N теперь безработный", target);
+			} else PrintToChat(client, "%N уже безработный", target);
+		} else PrintToChat(client, "%N не в игре", target);
+	}
+	return Plugin_Handled;
+}
+
+public Action sm_ReloadSettings(int client, int args){
+	delete g_settingsKV;
+	LoadKVSettings();
+	return Plugin_Handled;
+}
+
 public Action sm_dropmoney(int client, int args){
 	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
 		if (args != 1){
@@ -921,104 +1043,133 @@ public Action sm_givemoney(int client, int args){
 				PrintToChat(target, "Admin give your $%i", amount);
 				DB_SaveClient(target);				// save DB target
 			}
-			else if (amount < 1 || !amount) PrintHintText(client, "Don't correctly amount");
+			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
 	}
 	return Plugin_Handled;
 }
 
-stock bool RemoveWeapon(int client){
-	if (IsClientInGame(client) && IsPlayerAlive(client)){
-		int entity = CreateEntityByName("player_weaponstrip");
-		if (AcceptEntityInput(entity, "strip", client) && AcceptEntityInput(entity, "kill")){
-			return true;
+public Action sm_setmoney(int client, int args){
+	if (client && IsClientInGame(client)){
+		if (args != 2){
+			ReplyToCommand(client, "Usage: sm_setmoney <steamid> <amount>"); 
+			return Plugin_Handled;
+		}
+		char arg1[64], arg2[64];
+		
+		GetCmdArg(1, arg1, sizeof(arg1));
+		GetCmdArg(2, arg2, sizeof(arg2));
+		
+		int target = Client_FindBySteamId(arg1),
+			amount = StringToInt(arg2);
+			
+		if (target != -1 && IsClientInGame(client)){
+			if (amount > 0){
+				RP_Money[target] = amount;
+				PrintToChat(target, "Admin set your $%i", amount);
+				DB_SaveClient(target);				// save DB target
+			}
+			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
 	}
-	return false;
+	return Plugin_Handled;
 }
 
-stock float Entity_Distance(int ent1, int ent2) {
-	float orig1[3], orig2[3];
-	
-	GetEntPropVector(ent1, Prop_Send, "m_vecOrigin", orig1);
-	GetEntPropVector(ent2, Prop_Send, "m_vecOrigin", orig2);
-	
-	return GetVectorDistance(orig1, orig2);
-}
-
-stock bool Drop_Money(int client, int amount){
-	int ent;
-	if((ent = CreateEntityByName("prop_physics")) != -1){
-		float origin[3];
-		GetClientEyePosition(client, origin);
-		
-		TeleportEntity(ent, origin, NULL_VECTOR, NULL_VECTOR);
-		
-		char TargetName[32];
-		Format(TargetName, sizeof(TargetName), "%i", amount);
-		
-		DispatchKeyValue(ent, "model", money_model);
-		DispatchKeyValue(ent, "physicsmode", "2");
-		DispatchKeyValue(ent, "massScale", "8.0");
-		DispatchKeyValue(ent, "targetname", TargetName);
-		DispatchSpawn(ent);
-		
-		SetEntityMoveType(ent, MOVETYPE_VPHYSICS);
-		
-		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 8);
-		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 11);
-		return true;
-	}
-	return false;
-}
-
-stock bool CreateProp(float[] pos, const char[] name) {
-	int ent;
-	if ((ent = CreateEntityByName("prop_physics_override")) != -1) {
-		char targetname[64];
-		FormatEx(targetname, sizeof(targetname), "%s", name, ent);
-
-		char model[PLATFORM_MAX_PATH];
-		if (StrEqual(name, "atm")) {
-			strcopy(model, sizeof(model), atm_model);
+public Action sm_givebank(int client, int args){
+	if (client && IsClientInGame(client)){
+		if (args != 2){
+			ReplyToCommand(client, "Usage: sm_givebank <steamid> <amount>"); 
+			return Plugin_Handled;
 		}
-		else {
-			LogError("This prop name is not supported (%s)", name);
-			return false;
-		}
-		DispatchKeyValue(ent, "model", model);
-		DispatchKeyValue(ent, "physicsmode", "2");
-		DispatchKeyValue(ent, "massScale", "50.0");
-		DispatchKeyValue(ent, "targetname", targetname);
-		DispatchKeyValue(ent, "spawnflags", "0");
-		DispatchSpawn(ent);
-
-		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 152);
-		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
-		SetEntProp(ent, Prop_Data, "m_takedamage", 0, 1);
-
-		AcceptEntityInput(ent, "DisableMotion", -1, -1, 0);
-		SetEntityMoveType(ent, MOVETYPE_NONE);
-
-		float posa[3], angle[3]; ;
-		posa[0] = pos[0]; posa[1] = pos[1]; posa[2] = pos[2];
-		angle[0] = pos[3]; angle[1] = pos[4]; angle[2] = pos[5];
-		TeleportEntity(ent, posa, angle, NULL_VECTOR);
-		return true;
-	}
-	return false;
-}
-
-public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast){
-	if (iFog > 0){
-		int ent;
-		if ((ent = FindEntityByClassname(-1, "env_fog_controller")) != -1) {
-			AcceptEntityInput(ent, "TurnOff");
+		
+		char arg1[64], arg2[64];
+		
+		GetCmdArg(1, arg1, sizeof(arg1));
+		GetCmdArg(2, arg2, sizeof(arg2));
+		
+		int target = Client_FindBySteamId(arg1),
+			amount = StringToInt(arg2);
+			
+		if (target != -1 && IsClientInGame(client)){
+			if (amount > 0){
+				RP_Bank[target] += amount;
+				PrintToChat(target, "Admin give your in bank $%i", amount);
+				DB_SaveClient(target);				// save DB target
+			}
+			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
 	}
+	return Plugin_Handled;
 }
 
-public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast){
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (iRWeapons > 0) RemoveWeapon(client);
+public Action sm_setbank(int client, int args){
+	if (client && IsClientInGame(client)){
+		if (args != 2){
+			ReplyToCommand(client, "Usage: sm_setbank <steamid> <amount>"); 
+			return Plugin_Handled;
+		}
+		
+		char arg1[64], arg2[64];
+		
+		GetCmdArg(1, arg1, sizeof(arg1));
+		GetCmdArg(2, arg2, sizeof(arg2));
+		
+		int target = Client_FindBySteamId(arg1),
+			amount = StringToInt(arg2);
+			
+		if (target != -1 && IsClientInGame(client)){
+			if (amount > 0){
+				RP_Bank[target] = amount;
+				PrintToChat(target, "Admin set your in bank $%i", amount);
+				DB_SaveClient(target);				// save DB target
+			}
+			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
+		}
+	}
+	return Plugin_Handled;
+}
+
+public Action sm_dbsave(int client, int args){
+	for (int player = 1; player <= MaxClients; player++){
+		if (IsClientInGame(player)){
+			DB_SaveClient(player);
+		}
+	}
+	return Plugin_Handled;
+}
+
+//////////////////////
+// * GLOBAL TIMER * //
+//////////////////////
+
+public Action OnEverySecond(Handle timer) {
+	if (RP_IsStarted()) {
+		for (int i = 1; i <= MaxClients; i++) {
+			if (IsClientInGame(i) && GetClientTeam(i) > 1) {
+				if (!IsPlayerAlive(i)) {
+					RespawnClient(i);
+				}
+				/*} else {
+					if (rp_salarymode && rp_daytime*60%(rp_daytime*60/rp_salarytime) == 0) {
+						Salary(client, SalaryTypes_Salary);
+					}
+					else if (!rp_salarymode && cur_time%rp_salarytime == 0) {
+						Salary(client, SalaryTypes_Salary);
+					}
+				} */
+			}
+		}
+	}
+}
+
+stock bool RespawnClient(int client){
+	if (RP_RespawnTime[client] > 0){
+		RP_RespawnTime[client]--;
+		PrintHintText(client, "<font color='#ff0000'>Wasted</font> \nRespawn: %d", RP_RespawnTime[client]);
+	}
+	else if (RP_RespawnTime[client] == 0){
+		RP_RespawnTime[client] = -1;
+		
+		if (IsClientInGame(client) && !IsPlayerAlive(client)) CS_RespawnPlayer(client);
+	}
 }
