@@ -9,6 +9,7 @@
 		"idle"
 		{
 			"name" "Unempoloyed"
+			"respawn_time" "15"
 		}
 	}
 	
@@ -31,3 +32,11 @@
 		}
 	}
 }
+
+/*
+"tool"	"weapon_awp"
+"team"	"2 or 3"		2 - T; 3 - CT;
+"name"	"translation job/rank"
+"respawn_time"		"respawn timer if you dead. 1 or ..."
+"model"			"skin/model player"
+*/
