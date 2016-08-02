@@ -3,6 +3,5 @@
 	"atm_model"				"models/props_unique/atm01.mdl"
 	"money_model"			"models/props/cs_assault/money.mdl"
 	"localchat_distance"	"500.0"
-	"remove_weapon"			"1"
 	"turn_fog"				"1"
 }

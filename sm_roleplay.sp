@@ -29,7 +29,7 @@ Menu g_jobsmenu;
 
 // * KeyValues - settings.txt * //
 float fChatDistance;
-bool iRWeapons, iFog;
+bool iFog;
 KeyValues g_settingsKV;
 
 // * Global string - keyvalues * //
@@ -48,7 +48,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.02",
+	version = "alpha 0.03",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -71,7 +71,6 @@ public void OnPluginStart(){
 	LoadKVSettings();
 
 	RegConsoleCmd("sm_myjob", Cmd_MyJob, "Test command");
-	RegConsoleCmd("sm_tool", Cmd_Tool, "Test command");
 	
 	RegConsoleCmd("sm_dropmoney", sm_dropmoney, "sm_dropmoney <amount>");
 
@@ -532,6 +531,7 @@ public void ResetVariables(int client){
 	g_jobid[client] = g_sBuffer;
 	g_rankid[client] = g_sBuffer;
 	
+	RP_RespawnTime[client] = 0;
 	RP_LastMsg[client] = 0.0;
 }
 
@@ -550,6 +550,7 @@ stock void RP_RemoveJob(int client){
 	g_kv.GetString("idlerank", g_sBuffer, sizeof(g_sBuffer));
 	SetClientJob(client, g_sBuffer, g_sBuffer);
 	CS_SwitchTeam(client, CS_TEAM_T);
+	SetModelKV(client);
 }
 
 stock int Client_FindBySteamId(const char[] auth)
@@ -677,7 +678,7 @@ public int Menu_Ranks(Menu menu, MenuAction action, int param1, int param2)
 {
 	switch (action) {
 		case MenuAction_Select: {
-			int client = GetClientOfUserId(g_jobTarget[param1]);
+			int client = GetClientOfUserId(g_jobTarget[param1]);		// target
 			if (client == 0) {
 				PrintToChat(param1, "Client (userid: %i) is no longer available.", client);
 				return;
@@ -687,7 +688,15 @@ public int Menu_Ranks(Menu menu, MenuAction action, int param1, int param2)
 			menu.GetItem(param2, id, sizeof(id));
 			PrintToChat(param1, "Your choose: job %s, rank %s", job, id);
 			SetClientJob(client, job, id);
-			GiveKVsettings(client);
+			if (IsPlayerAlive(client)){
+				SetModelKV(client);
+			}
+			SetTeamKV(client);
+				
+			/*if (IsPlayerAlive(client)){
+				FakeClientCommand(client, "kill");
+			} else PrintToChat(param1, "Target dead");
+			GiveKVsettings(client);*/
 			char JobName[64], RankName[64];
 			GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
 			PrintToChat(client, "Admin change your job. New job %s, rank %s", JobName, RankName);
@@ -710,31 +719,6 @@ void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxl
 	g_kv.Rewind();
 }
 
-void GiveKVsettings(int client){
-	if (client && IsClientInGame(client) && !RP_IsUnemployed(client)){
-		char branch[64], tool[32];
-		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch, tool, sizeof(tool));
-		if (tool[0] == '\0')
-			PrintToChat(client, "Для вашей структуры нет оружия!");
-		GivePlayerItem(client, tool);
-		
-		char branch_model[64];
-		FormatEx(branch_model, sizeof(branch_model), "%s/%s/model", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch_model, model, sizeof(model));
-		if (model[0] == '\0')
-			PrintToChat(client, "Для вашей структуры нет скина!");
-		SetEntityModel(client, model);
-		
-		char branch_team[64]; int team;
-		FormatEx(branch_team, sizeof(branch_team), "%s/%s/team", g_jobid[client], g_rankid[client]);
-		team = g_kv.GetNum(branch_team);
-		if (GetClientTeam(client) != team){
-			CS_SwitchTeam(client, team);
-		}
-	}
-}
-
 //////////////////
 // * SETTINGS * //
 //////////////////
@@ -752,7 +736,6 @@ void LoadKVSettings(){
 			g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
 			g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
 			fChatDistance = view_as<float>(g_settingsKV.GetFloat("localchat_distance", 500.0));
-			iRWeapons = view_as<bool>(g_settingsKV.GetNum("remove_weapon", 1));
 			iFog = view_as<bool>(g_settingsKV.GetNum("turn_fog", 0));
 		} while (g_settingsKV.GotoNextKey());
 	}
@@ -813,11 +796,12 @@ public Action Chat_Say(int client, const char[] command, int args){
 }
 
 stock bool RemoveWeapon(int client){
-	if (IsClientInGame(client)){
+	if (IsClientInGame(client) && IsPlayerAlive(client)){
 		int entity = CreateEntityByName("player_weaponstrip");
 		if (AcceptEntityInput(entity, "strip", client) && AcceptEntityInput(entity, "kill")){
 			return true;
 		}
+		return false;
 	}
 	return false;
 }
@@ -905,15 +889,20 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast){
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (iRWeapons) RemoveWeapon(client);
+	RemoveWeapon(client);			// Disarm Player
+	
+	SetModelKV(client);				// Set the player model
+	SetTeamKV(client);				// Set the player team
+	GiveWeaponKV(client);			// Give the player weapons
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	char sRespawn[64]; int tRespawn;
+	/*char sRespawn[64]; int tRespawn;
 	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
-	tRespawn = g_kv.GetNum(sRespawn, 10);
-	RP_RespawnTime[client] = tRespawn;
+	tRespawn = view_as<int>(g_kv.GetNum(sRespawn, 10));
+	RP_RespawnTime[client] = tRespawn;*/
+	SetRespawnTimeKV(client);
 }
 
 void RegCvars(){
@@ -938,21 +927,6 @@ public Action Cmd_ReloadJobs(int client, int args)
 	delete g_kv;
 	LoadKVJobs();
 	BuildJobsMenu();
-
-	return Plugin_Handled;
-}
-
-public Action Cmd_Tool(int client, int args)
-{
-	if (client && IsPlayerAlive(client) && !RP_IsUnemployed(client)) {
-		/*char branch[64], tool[32];
-		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch, tool, sizeof(tool));
-		if (tool[0] == '\0')
-			ThrowError("Job \"%s-%s\" don't contain tool key", g_jobid[client], g_rankid[client]);
-		GivePlayerItem(client, tool);*/
-		GiveKVsettings(client);
-	}
 
 	return Plugin_Handled;
 }
@@ -1145,7 +1119,7 @@ public Action sm_dbsave(int client, int args){
 public Action OnEverySecond(Handle timer) {
 	if (RP_IsStarted()) {
 		for (int i = 1; i <= MaxClients; i++) {
-			if (IsClientInGame(i) && GetClientTeam(i) > 1) {
+			if (IsValidPlayer(i) && GetClientTeam(i) > 1) {
 				if (!IsPlayerAlive(i)) {
 					RespawnClient(i);
 				}
@@ -1170,6 +1144,58 @@ stock bool RespawnClient(int client){
 	else if (RP_RespawnTime[client] == 0){
 		RP_RespawnTime[client] = -1;
 		
-		if (IsClientInGame(client) && !IsPlayerAlive(client)) CS_RespawnPlayer(client);
+		if (IsValidPlayer(client) && !IsPlayerAlive(client)) CS_RespawnPlayer(client);
 	}
+}
+
+stock bool IsValidPlayer(int client){
+	if (0 < client <= MaxClients && IsClientInGame(client))
+	{
+		return true;
+	}
+	else return false;
+}
+
+//////////////////////////
+// * JOBS - KEYVALUES * //
+//////////////////////////
+
+void SetModelKV(int client){
+	if (client && IsClientInGame(client)){
+		char branch_model[64];
+		FormatEx(branch_model, sizeof(branch_model), "%s/%s/model", g_jobid[client], g_rankid[client]);
+		g_kv.GetString(branch_model, model, sizeof(model));
+		if (model[0] != '\0') 
+			SetEntityModel(client, model);
+	}
+}
+	
+void SetTeamKV(int client){
+	if (client && IsClientInGame(client)){
+		char branch_team[64]; int team;
+		FormatEx(branch_team, sizeof(branch_team), "%s/%s/team", g_jobid[client], g_rankid[client]);
+		team = g_kv.GetNum(branch_team);
+		if (team != 0){
+			if (GetClientTeam(client) != team){
+				CS_SwitchTeam(client, team);
+			}
+		} else ThrowError("Job \"%s-%s\" don't contain team key", g_jobid[client], g_rankid[client]);			// Test: error log
+	}
+}
+
+void GiveWeaponKV(int client){
+	if (client && IsClientInGame(client)){
+		char branch[64], tool[32];
+		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
+		g_kv.GetString(branch, tool, sizeof(tool));
+		if (tool[0] != '\0') 
+			GivePlayerItem(client, tool);
+	}
+}
+
+void SetRespawnTimeKV(int client){
+	char sRespawn[64]; int tRespawn;
+	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
+	tRespawn = g_kv.GetNum(sRespawn);
+	RP_RespawnTime[client] = tRespawn;
 }
