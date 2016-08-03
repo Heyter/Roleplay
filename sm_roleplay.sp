@@ -769,12 +769,15 @@ public Action Chat_Say(int client, const char[] command, int args){
 	||		 StrContains(text, "/") == 0){
 		return Plugin_Continue;
 	}
-	else if (strcmp(command, "say") == 0){
+	if (strcmp(command, "say") == 0){
 		if ((GetEngineTime() - RP_LastMsg[client]) < 3.00){
 			return Plugin_Handled;
 		}
+		
 		RP_LastMsg[client] = GetEngineTime();
-		CPrintToChatAll("\x01(OOC) \x03%N: \x01%s", client, text);
+		CPrintToChatAllEx(client, "\x01(OOC) \x03%N: \x01%s", client, text);
+		
+		return Plugin_Handled;
 	}
 	
 	else if (strcmp(command, "say_team") == 0){
@@ -785,7 +788,6 @@ public Action Chat_Say(int client, const char[] command, int args){
 				}
 				
 				RP_LastMsg[client] = GetEngineTime();
-
 				CPrintToChatEx(i, client, "\x01(LOCAL) \x03%N: \x01%s", client, text);
 			}
 			return Plugin_Handled;
@@ -898,10 +900,6 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	/*char sRespawn[64]; int tRespawn;
-	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
-	tRespawn = view_as<int>(g_kv.GetNum(sRespawn, 10));
-	RP_RespawnTime[client] = tRespawn;*/
 	SetRespawnTimeKV(client);
 }
 
@@ -1111,6 +1109,7 @@ public Action sm_dbsave(int client, int args){
 	}
 	return Plugin_Handled;
 }
+		
 
 //////////////////////
 // * GLOBAL TIMER * //
@@ -1179,7 +1178,7 @@ void SetTeamKV(int client){
 			if (GetClientTeam(client) != team){
 				CS_SwitchTeam(client, team);
 			}
-		} else ThrowError("Job \"%s-%s\" don't contain team key", g_jobid[client], g_rankid[client]);			// Test: error log
+		}
 	}
 }
 
