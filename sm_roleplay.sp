@@ -733,10 +733,10 @@ void LoadKVSettings(){
 	if (g_settingsKV.GotoFirstSubKey()){
 		do 
 		{
-			g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
-			g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
-			fChatDistance = view_as<float>(g_settingsKV.GetFloat("localchat_distance", 500.0));
-			iFog = view_as<bool>(g_settingsKV.GetNum("turn_fog", 0));
+			GetStringATM();
+			GetStringMONEY();
+			GetFloatChatDistance();
+			GetNumFog();
 		} while (g_settingsKV.GotoNextKey());
 	}
 }
@@ -782,6 +782,7 @@ public Action Chat_Say(int client, const char[] command, int args){
 	
 	else if (strcmp(command, "say_team") == 0){
 		for (int i = 1; i <= MaxClients; i++){
+			GetFloatChatDistance();
 			if (Entity_Distance(client, i) <= fChatDistance){
 				if ((GetEngineTime() - RP_LastMsg[client]) < 0.75){
 					return Plugin_Handled;
@@ -828,6 +829,7 @@ stock bool Drop_Money(int client, int amount){
 		char TargetName[32];
 		Format(TargetName, sizeof(TargetName), "%i", amount);
 		
+		GetStringMONEY();
 		DispatchKeyValue(ent, "model", money_model);
 		DispatchKeyValue(ent, "physicsmode", "2");
 		DispatchKeyValue(ent, "massScale", "8.0");
@@ -838,43 +840,6 @@ stock bool Drop_Money(int client, int amount){
 		
 		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 8);
 		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 11);
-		return true;
-	}
-	return false;
-}
-
-stock bool CreateProp(float[] pos, const char[] name) {
-	int ent;
-	if ((ent = CreateEntityByName("prop_physics_override")) != -1) {
-		char targetname[64];
-		FormatEx(targetname, sizeof(targetname), "%s", name, ent);
-
-		char sModel[PLATFORM_MAX_PATH];
-		if (StrEqual(name, "atm")) {
-			strcopy(sModel, sizeof(sModel), atm_model);
-		}
-		else {
-			LogError("This prop name is not supported (%s)", name);
-			return false;
-		}
-		DispatchKeyValue(ent, "model", sModel);
-		DispatchKeyValue(ent, "physicsmode", "2");
-		DispatchKeyValue(ent, "massScale", "50.0");
-		DispatchKeyValue(ent, "targetname", targetname);
-		DispatchKeyValue(ent, "spawnflags", "0");
-		DispatchSpawn(ent);
-
-		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 152);
-		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
-		SetEntProp(ent, Prop_Data, "m_takedamage", 0, 1);
-
-		AcceptEntityInput(ent, "DisableMotion", -1, -1, 0);
-		SetEntityMoveType(ent, MOVETYPE_NONE);
-
-		float posa[3], angle[3]; ;
-		posa[0] = pos[0]; posa[1] = pos[1]; posa[2] = pos[2];
-		angle[0] = pos[3]; angle[1] = pos[4]; angle[2] = pos[5];
-		TeleportEntity(ent, posa, angle, NULL_VECTOR);
 		return true;
 	}
 	return false;
@@ -1197,4 +1162,24 @@ void SetRespawnTimeKV(int client){
 	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
 	tRespawn = g_kv.GetNum(sRespawn);
 	RP_RespawnTime[client] = tRespawn;
+}
+
+//////////////////////////////
+// * SETTINGS - KEYVALUES * //
+//////////////////////////////
+
+void GetStringMONEY(){
+	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
+}
+
+void GetStringATM(){
+	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
+}
+
+void GetFloatChatDistance(){
+	fChatDistance = view_as<float>(g_settingsKV.GetFloat("localchat_distance", 500.0));
+}
+
+void GetNumFog(){
+	iFog = view_as<bool>(g_settingsKV.GetNum("turn_fog", 0));
 }
