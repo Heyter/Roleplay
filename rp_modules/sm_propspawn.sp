@@ -14,7 +14,7 @@ char atm_model[PLATFORM_MAX_PATH], g_iProps[MAX_PROPS][2];
 public Plugin porno = {
 	author = "Hikka",
 	name = "[RP:Module] Props spawn",
-	version = "0.01",
+	version = "0.02",
 };
 
 public void OnPluginStart(){
@@ -24,13 +24,15 @@ public void OnPluginStart(){
 	RegAdminCmd("sm_angprop", sm_angprop, ADMFLAG_ROOT, "Rotate prop - angles");
 	RegAdminCmd("sm_posprop", sm_posprop, ADMFLAG_ROOT, "Rotate prop - position");
 	RegAdminCmd("sm_propmenu", sm_propmenu, ADMFLAG_ROOT, "Admin - Prop menu");
+	RegAdminCmd("sm_loadprop", sm_loadprop, ADMFLAG_ROOT, "Force load props");
+	RegAdminCmd("sm_cleanprop", sm_cleanprop, ADMFLAG_ROOT, "Remove all props");
 	
-	RegAdminCmd("sm_reloadsettings", sm_reloadsettings, ADMFLAG_ROOT, "Reload config settings.txt");		// sm_roleplay.sp
+	RegAdminCmd("sm_rsettings", sm_rsettings, ADMFLAG_ROOT, "Reload config settings.txt");		// sm_roleplay.sp
 	
 	LoadKVSettings();
 }
 
-public Action sm_reloadsettings(int client, int args){
+public Action sm_rsettings(int client, int args){
 	delete g_settingsKV;
 	LoadKVSettings();
 	return Plugin_Handled;
@@ -68,6 +70,8 @@ void RP_PropMenu(int client){
 	menu.AddItem("sm_delprop", "Delete prop");
 	menu.AddItem("sm_angprop", "Rotate prop - angles");
 	menu.AddItem("sm_posprop", "Rotate prop - position");
+	menu.AddItem("sm_loadprop", "Force load props");
+	menu.AddItem("sm_cleanprop", "Remove all props");
 	
 	menu.Display(client, MENU_TIME_FOREVER);
 }
@@ -91,9 +95,31 @@ public int Select_propmenu(Menu menu, MenuAction action, int client, int option)
 				}
 				case 3: FakeClientCommand(client, "sm_angprop");
 				case 4: FakeClientCommand(client, "sm_posprop");
+				case 5: FakeClientCommand(client, "sm_loadprop");
+				case 6: {
+					FakeClientCommand(client, "sm_cleanprop");
+					RP_PropMenu(client);
+				}
 			}
 		}
 	}
+}
+
+public Action sm_cleanprop(int client, int args){
+	if (client && IsClientInGame(client)){
+		for (int i = 0; i < MAX_PROPS; i++){
+			RemoveProps(i);
+		}
+		PrintToChat(client, "%sIts not save in config", CHAT_TAG);
+	}
+	return Plugin_Handled;
+}
+
+public Action sm_loadprop(int client, int args){
+	if (client && IsClientInGame(client)){
+		LoadProps();
+	}
+	return Plugin_Handled;
 }
 
 public void OnMapStart(){
@@ -101,7 +127,7 @@ public void OnMapStart(){
 }
 
 void LoadProps()
-{
+{	
 	char sPath[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, sPath, sizeof(sPath), "%s", CONFIG_SPAWNS);
 	if (!FileExists(sPath))
