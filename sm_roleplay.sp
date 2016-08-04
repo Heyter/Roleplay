@@ -3,6 +3,8 @@
 #include <colors_csgo>
 #include <cstrike>
 #pragma newdecls required
+
+#define MIN_DISTANCE_USE 100
 #define IDSIZE 32
 
 // macross
@@ -35,6 +37,11 @@ KeyValues g_settingsKV;
 // * Global string - keyvalues * //
 char model[PLATFORM_MAX_PATH], atm_model[PLATFORM_MAX_PATH], money_model[PLATFORM_MAX_PATH];
 
+// * OnPlayerRunCmd * //
+bool g_bPressedUse[MAXPLAYERS + 1];
+float g_flPressUse[MAXPLAYERS + 1], g_fATMorigin[MAXPLAYERS + 1][3];
+
+// * AddCommandListener * //
 char Forbidden_Commands[][] = {
     "explode",		"kill",			"coverme",		"takepoint",
     "holdpos",		"regroup",		"followme",		"takingfire",
@@ -48,7 +55,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.03",
+	version = "alpha 0.04",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -83,6 +90,9 @@ public void OnPluginStart(){
 	RegAdminCmd("sm_givebank", sm_givebank, ADMFLAG_ROOT, "Give money in bank");
 	RegAdminCmd("sm_setbank", sm_setbank, ADMFLAG_ROOT, "Set money in bank");
 	RegAdminCmd("sm_dbsave", sm_dbsave, ADMFLAG_ROOT, "Force Server DB Save");
+	RegAdminCmd("sm_dbsavemoney", sm_dbsavemoney, ADMFLAG_ROOT, "Force Server DB Save Money");
+	RegAdminCmd("sm_dbsavejobs", sm_dbsavejobs, ADMFLAG_ROOT, "Force Server DB Save Jobs");
+	RegAdminCmd("sm_adminmenu", sm_adminmenu, ADMFLAG_ROOT, "Admin menu - RP");
 	
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("player_death", Event_PlayerDeath);
@@ -391,6 +401,7 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 	}
 }
 
+// save all info client
 void DB_SaveClient(int client, DBPriority prio = DBPrio_Normal) {
 	if (!client || !IsClientInGame(client)) return;
 
@@ -431,6 +442,42 @@ void DB_SaveClientInfo(Database db, int client, DBPriority prio = DBPrio_Normal)
 	Client_SteamID(client, auth, sizeof(auth));
 
 	FormatEx(query, sizeof(query), "UPDATE `%splayers_info` SET `jobid` = '%s', `rankid` = '%s', `money` = %d, `bank_money` = %d WHERE `auth` = '%s';", db_prefix, jobname, rankname, RP_Money[client], RP_Bank[client], auth);
+
+	DB_TQueryEx(query, prio, 3);
+}
+
+// save only money client
+void DB_SaveClientMoney(int client, DBPriority prio = DBPrio_Normal) {
+	if (!client || !IsClientInGame(client)) return;
+	
+	char query[512],
+		 auth[32];
+	
+	Client_SteamID(client, auth, sizeof(auth));
+
+	FormatEx(query, sizeof(query), "UPDATE `%splayers_info` SET `money` = %d, `bank_money` = %d WHERE `auth` = '%s';", db_prefix, RP_Money[client], RP_Bank[client], auth);
+
+	DB_TQueryEx(query, prio, 3);
+}
+
+// save only job client
+void DB_SaveClientJob(Database db, int client, DBPriority prio = DBPrio_Normal) {
+	if (!client || !IsClientInGame(client)) return;
+	
+	char query[512],
+		 jobname[MAX_NAME_LENGTH],
+		 rankname[MAX_NAME_LENGTH],
+		 auth[32];
+
+	GetJobSQL(client, jobname, sizeof(jobname));
+	EscapeString(db, jobname, jobname, sizeof(jobname));
+
+	GetRankSQL(client, rankname, sizeof(rankname));
+	EscapeString(db, rankname, rankname, sizeof(rankname));
+	
+	Client_SteamID(client, auth, sizeof(auth));
+
+	FormatEx(query, sizeof(query), "UPDATE `%splayers_info` SET `jobid` = '%s', `rankid` = '%s' WHERE `auth` = '%s';", db_prefix, jobname, rankname, auth);
 
 	DB_TQueryEx(query, prio, 3);
 }
@@ -533,6 +580,10 @@ public void ResetVariables(int client){
 	
 	RP_RespawnTime[client] = 0;
 	RP_LastMsg[client] = 0.0;
+	
+	// * OnPlayerRunCmd * //
+	g_bPressedUse[client] = false;
+	g_flPressUse[client] = -1.0;
 }
 
 // RP_IsUnemployed - unemployed player or no.
@@ -687,16 +738,13 @@ public int Menu_Ranks(Menu menu, MenuAction action, int param1, int param2)
 			menu.GetItem(0, job, sizeof(job));
 			menu.GetItem(param2, id, sizeof(id));
 			PrintToChat(param1, "Your choose: job %s, rank %s", job, id);
+			
 			SetClientJob(client, job, id);
 			if (IsPlayerAlive(client)){
 				SetModelKV(client);
 			}
 			SetTeamKV(client);
-				
-			/*if (IsPlayerAlive(client)){
-				FakeClientCommand(client, "kill");
-			} else PrintToChat(param1, "Target dead");
-			GiveKVsettings(client);*/
+			
 			char JobName[64], RankName[64];
 			GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
 			PrintToChat(client, "Admin change your job. New job %s, rank %s", JobName, RankName);
@@ -708,6 +756,8 @@ void SetClientJob(int client, const char[] job, const char[] rank)
 {
 	strcopy(g_jobid[client], sizeof(g_jobid[]), job);
 	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
+	
+	DB_SaveClientJob(g_db, client);			// save client job
 }
 
 void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
@@ -978,7 +1028,8 @@ public Action sm_givemoney(int client, int args){
 			if (amount > 0){
 				RP_Money[target] += amount;
 				PrintToChat(target, "Admin give your $%i", amount);
-				DB_SaveClient(target);				// save DB target
+				//DB_SaveClient(target);				// save DB target
+				DB_SaveClientMoney(target);
 			}
 			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
@@ -1004,7 +1055,8 @@ public Action sm_setmoney(int client, int args){
 			if (amount > 0){
 				RP_Money[target] = amount;
 				PrintToChat(target, "Admin set your $%i", amount);
-				DB_SaveClient(target);				// save DB target
+				//DB_SaveClient(target);				// save DB target
+				DB_SaveClientMoney(target);
 			}
 			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
@@ -1031,7 +1083,8 @@ public Action sm_givebank(int client, int args){
 			if (amount > 0){
 				RP_Bank[target] += amount;
 				PrintToChat(target, "Admin give your in bank $%i", amount);
-				DB_SaveClient(target);				// save DB target
+				//DB_SaveClient(target);				// save DB target
+				DB_SaveClientMoney(target);
 			}
 			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
@@ -1058,7 +1111,8 @@ public Action sm_setbank(int client, int args){
 			if (amount > 0){
 				RP_Bank[target] = amount;
 				PrintToChat(target, "Admin set your in bank $%i", amount);
-				DB_SaveClient(target);				// save DB target
+				//DB_SaveClient(target);				// save DB target
+				DB_SaveClientMoney(target);
 			}
 			else if (amount < 1 || !amount) PrintHintText(client, "Incorrect amount");
 		}
@@ -1070,12 +1124,85 @@ public Action sm_dbsave(int client, int args){
 	for (int player = 1; player <= MaxClients; player++){
 		if (IsClientInGame(player)){
 			DB_SaveClient(player);
+			PrintToChat(client, "Successfully!");
 		}
 	}
 	return Plugin_Handled;
 }
-		
 
+public Action sm_dbsavemoney(int client, int args){
+	for (int player = 1; player <= MaxClients; player++){
+		if (IsClientInGame(player)){
+			DB_SaveClientMoney(player);
+			PrintToChat(client, "Successfully!");
+		}
+	}
+	return Plugin_Handled;
+}
+
+public Action sm_dbsavejobs(int client, int args){
+	for (int player = 1; player <= MaxClients; player++){
+		if (IsClientInGame(player)){
+			DB_SaveClientJob(g_db, player);
+			PrintToChat(client, "Successfully!");
+		}
+	}
+	return Plugin_Handled;
+}
+
+public Action sm_adminmenu(int client, int args){
+	if (client && IsClientInGame(client)){
+		RP_AdminMenu(client);
+	}
+	return Plugin_Handled;
+}
+
+void RP_AdminMenu(int client){
+	Menu menu = new Menu(select_adminmenu);
+	menu.SetTitle("[RP] Admin Menu");
+	
+	menu.AddItem("jobs", "Jobs menu");
+	menu.AddItem("db_menu", "Database menu");
+	
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int select_adminmenu(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+        	switch (option){
+        		case 0: FakeClientCommand(client, "sm_jobs");
+        		case 1: RP_dbmenu(client);
+        	}
+        }
+    }
+}
+
+void RP_dbmenu(int client){
+    Menu menu = new Menu(select_dbmenu);
+    menu.SetTitle("[RP] Database Menu");
+   
+    menu.AddItem("force", "Force DB save");
+    menu.AddItem("savemoney", "Save money");
+    menu.AddItem("savejobs", "Save jobs");
+   
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int select_dbmenu(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+        	switch (option){
+				case 0: FakeClientCommand(client, "sm_dbsave");
+				case 1: FakeClientCommand(client, "sm_dbsavemoney");
+				case 2: FakeClientCommand(client, "sm_dbsavejobs");
+        	}
+        }
+    }
+}
+		
 //////////////////////
 // * GLOBAL TIMER * //
 //////////////////////
@@ -1182,4 +1309,230 @@ void GetFloatChatDistance(){
 
 void GetNumFog(){
 	iFog = view_as<bool>(g_settingsKV.GetNum("turn_fog", 0));
+}
+
+////////////////////////
+// * OnPlayerRunCmd * //
+////////////////////////
+
+public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3]){
+    if (!IsClientInGame(client))return Plugin_Handled;
+   
+    if (IsPlayerAlive(client)){
+       
+        // kossolax thanks for this
+        if( buttons & IN_USE && g_bPressedUse[client] == false ) {
+            g_bPressedUse[client] = true;
+            g_flPressUse[client] = GetGameTime();
+        }
+        else if (!(buttons & IN_USE) && g_bPressedUse[client] == true) {
+            g_bPressedUse[client] = false;
+            if ((GetGameTime() - g_flPressUse[client]) < 0.2){
+                int ent = AimTargetProp(client);
+               
+                if (ent != -1 && IsValidEntity(ent)){
+                    char modelname[128];
+                    GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+                    
+                    GetStringATM();				// atm_model
+                    GetStringMONEY();			// money_model
+                    if (strcmp(modelname, atm_model) == 0) {
+ 
+						float origin[3];
+						GetEntPropVector(ent, Prop_Send, "m_vecOrigin", g_fATMorigin[client]);
+						GetClientAbsOrigin(client, origin);
+						float distance = GetVectorDistance(origin, g_fATMorigin[client]);
+						if (distance < MIN_DISTANCE_USE) RP_BankMenu(client);			// Open bank menu
+					}
+					
+					else if (strcmp(modelname, money_model) == 0) {
+						float origin[3], clientent[3];
+						GetEntPropVector(ent, Prop_Send, "m_vecOrigin", origin);
+						GetClientAbsOrigin(client, clientent);
+						float distance = GetVectorDistance(origin, clientent);
+						if (distance < MIN_DISTANCE_USE){
+							char amount[32];
+							GetTargetName(ent, amount, sizeof(amount));
+							
+							if (0 < StringToInt(amount)){
+								RemoveEdict(ent);
+								RP_Money[client] += StringToInt(amount);
+								PrintToChat(client, "You pick up %d", StringToInt(amount));
+							}
+						}
+					}
+                }
+            }
+        }
+    }
+    return Plugin_Continue;
+}
+ 
+void RP_BankMenu(int client) {
+    Menu menu = new Menu(Select_bankmenu);
+    char buffer[32];
+    FormatEx(buffer, sizeof(buffer), "ATM [Bank: %i / Cash: %i]", RP_Bank[client], RP_Money[client]);
+    menu.SetTitle(buffer);
+   
+    menu.AddItem("deposit", "Deposit");
+    menu.AddItem("withdraw", "Withdraw");
+   
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+ 
+public int Select_bankmenu(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+            float clientent[3];
+            GetClientAbsOrigin(client, clientent);
+            float distance = GetVectorDistance(g_fATMorigin[client], clientent);
+            if (distance > MIN_DISTANCE_USE) {
+                PrintToChat(client, "You have departed from the ATM");
+                return;
+            }
+            
+            char buffer[32];
+            GetMenuItem(menu, option, buffer, sizeof(buffer));
+            switch (option) {
+                case 0: RP_DepositAmount(client);
+                case 1: RP_WithdrawAmount(client);
+            }
+        }
+    }
+}
+
+void RP_DepositAmount(int client){
+    Menu menu = new Menu(Select_depositamount);
+    menu.SetTitle("Deposit amount");
+   
+    menu.AddItem("all", "All");
+    if (RP_Money[client] >= 10) menu.AddItem("10", "$10");
+    if (RP_Money[client] >= 50) menu.AddItem("50", "$50");
+    if (RP_Money[client] >= 100) menu.AddItem("100", "$100");
+    if (RP_Money[client] >= 200) menu.AddItem("200", "$200");
+    if (RP_Money[client] >= 500) menu.AddItem("500", "$500");
+    if (RP_Money[client] >= 1000) menu.AddItem("1000", "$1000");
+    if (RP_Money[client] >= 2000) menu.AddItem("2000", "$2000");
+    if (RP_Money[client] >= 5000) menu.AddItem("5000", "$5000");
+    if (RP_Money[client] >= 10000) menu.AddItem("10000", "$10000");
+   
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+void RP_WithdrawAmount(int client){
+    Menu menu = new Menu(Select_withdrawtamount);
+    menu.SetTitle("Withdraw amount");
+   
+    menu.AddItem("all", "All");
+    if (RP_Bank[client] >= 10) menu.AddItem("10", "$10");
+    if (RP_Bank[client] >= 50) menu.AddItem("50", "$50");
+    if (RP_Bank[client] >= 100) menu.AddItem("100", "$100");
+    if (RP_Bank[client] >= 200) menu.AddItem("200", "$200");
+    if (RP_Bank[client] >= 500) menu.AddItem("500", "$500");
+    if (RP_Bank[client] >= 1000) menu.AddItem("1000", "$1000");
+    if (RP_Bank[client] >= 2000) menu.AddItem("2000", "$2000");
+    if (RP_Bank[client] >= 5000) menu.AddItem("5000", "$5000");
+    if (RP_Bank[client] >= 10000) menu.AddItem("10000", "$10000");
+   
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Select_depositamount(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+            float clientent[3];
+            GetClientAbsOrigin(client, clientent);
+            float distance = GetVectorDistance(g_fATMorigin[client], clientent);
+            if (distance > MIN_DISTANCE_USE) {
+                PrintToChat(client, "You have departed from the ATM");
+                return;
+            }
+            
+            else if (RP_Money[client] < 1){
+            	PrintToChat(client, "You don't have money");
+            	return;
+            }
+            
+            char buffer[32];
+            GetMenuItem(menu, option, buffer, sizeof(buffer));
+            int amount = StringToInt(buffer);
+            if (strcmp(buffer, "all") == 0){
+				RP_Bank[client] = RP_Money[client] + RP_Bank[client];
+				RP_Money[client] = 0;
+				PrintToChat(client, "You deposit all money");
+			}
+			
+			else if (RP_Money[client] >= amount){
+				RP_Bank[client] += amount;
+				RP_Money[client] -= amount;
+				PrintToChat(client, "You deposit $%i money", amount);
+			}
+        }
+    }
+}
+
+public int Select_withdrawtamount(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+            float clientent[3];
+            GetClientAbsOrigin(client, clientent);
+            float distance = GetVectorDistance(g_fATMorigin[client], clientent);
+            if (distance > MIN_DISTANCE_USE) {
+                PrintToChat(client, "You have departed from the ATM");
+                return;
+            }
+            
+            else if (RP_Bank[client] < 1){
+            	PrintToChat(client, "You don't have money");
+            	return;
+            }
+            
+            char buffer[32];
+            GetMenuItem(menu, option, buffer, sizeof(buffer));
+            int amount = StringToInt(buffer);
+            if (strcmp(buffer, "all") == 0){
+				RP_Money[client] = RP_Bank[client] + RP_Money[client];
+				RP_Bank[client] = 0;
+				PrintToChat(client, "You withdraw all money");
+			}
+			
+			else if (RP_Money[client] >= amount){
+				RP_Bank[client] -= amount;
+				RP_Money[client] += amount;
+				PrintToChat(client, "You withdraw $%i money", amount);
+			}
+        }
+    }
+}
+
+// Thanks exle
+stock int AimTargetProp(int client) {
+    float m_vecOrigin[3],
+          m_angRotation[3];
+ 
+    GetClientEyePosition(client, m_vecOrigin);
+    GetClientEyeAngles(client, m_angRotation);
+ 
+    Handle tr = TR_TraceRayFilterEx(m_vecOrigin, m_angRotation, MASK_VISIBLE, RayType_Infinite, TRDontHitSelf, client);
+    if (TR_DidHit(tr)) {
+        int pEntity = TR_GetEntityIndex(tr);
+        if (MaxClients < pEntity) {
+            delete tr;
+            return pEntity;
+        }
+    }
+ 
+    delete tr;
+    return -1;
+}
+ 
+public bool TRDontHitSelf(int entity, int mask, any data) {
+    return !(entity == data);
+}
+
+stock void GetTargetName(int entity, char[] buf, int len){
+	GetEntPropString(entity, Prop_Data, "m_iName", buf, len);
 }
