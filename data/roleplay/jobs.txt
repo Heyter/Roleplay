@@ -8,27 +8,24 @@
 		"name" "Unemployed"
 		"idle"
 		{
-			"name" "Unempoloyed"
+			"name" "Hobo"
 			"respawn_time" "15"
-		}
-	}
-	
-	"Civilian"
-	{
-		"Fuck"
-		{
-			"name" "Unemployed"
-			"tool" "weapon_awp"
-			"team" "3"
-		}
-	}
-	
-	"Main"
-	{
-		"Sucker"
-		{
-			"tool" "weapon_deagle"
+			"salary" "50"				// salary get money
+			"tool" "weapon_knife"
 			"team" "2"
+			"model" "models/weapons/t_arms_anarchist.mdl"				// need precache model
+		}
+	}
+	
+	"Police"
+	{
+		"Cop"
+		{
+			"name" "Cop"
+			"respawn_time" "15"
+			"salary" "100"				// salary get money
+			"tool" "weapon_knife"
+			"team" "3"
 		}
 	}
 }
