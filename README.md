@@ -6,3 +6,4 @@
 - Game: CSGO[CSS]
 - Database: sqlite/mysql
 - Language: Multi
+- Recommended plugins: https://forums.alliedmods.net/showthread.php?t=199799
