@@ -20,8 +20,7 @@ ConVar Database_prefix;
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
 	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1];
 
-char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE],
-	g_sBuffer[MAX_NAME_LENGTH];
+char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
 	
 float RP_LastMsg[MAXPLAYERS + 1];
 bool RP_Hud[MAXPLAYERS + 1];
@@ -57,7 +56,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.05",
+	version = "alpha 0.05.half",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -147,16 +146,19 @@ public int Native_RP_RemoveWeapon(Handle plugin, int numParams){
 public void OnClientPutInServer(int client) {
 	if (!RP_IsStarted()) return;
 	
-	CreateTimer(0.1, Timer_1, client);
+	CreateTimer(1.0, Timer_1, client);
 	
 	ResetVariables(client);
 	DB_OnClientPutInServer(client);
 }
 
+
 public Action Timer_1(Handle timer, any client)
 {
-	if (client && IsClientInGame(client)) ChangeClientTeam(client, 1);
-	CreateTimer(1.0, Timer_2, client);
+	if (client && IsClientInGame(client)){
+		ChangeClientTeam(client, 1);
+	}
+	CreateTimer(5.0, Timer_2, client);
 }
 
 public Action Timer_2(Handle timer, any client)
@@ -177,6 +179,11 @@ public void OnClientDisconnect(int client){
 public void OnMapStart(){
 	ServerCommand("mp_startmoney 0");
 	ServerCommand("sv_disable_show_team_select_menu 1");
+	ServerCommand("mp_teammates_are_enemies 1");
+	ServerCommand("mp_ignore_round_win_conditions 1");
+	ServerCommand("mp_warmuptime 0");
+	ServerCommand("mp_do_warmup_period 0");
+	ServerCommand("mp_forcecamera 1");
 	
 	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
 	if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
@@ -395,31 +402,35 @@ void DB_LoadClientInfo(int client, DBPriority prio = DBPrio_Normal) {
 public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const char[] error, any data) {
 	if (!IsClientInGame(data)) return;
 
-	char buffer[256];
+	char buffer[MAX_NAME_LENGTH], buffer2[MAX_NAME_LENGTH];
 	if (results.HasResults && results.FetchRow()) { 
-		results.FetchString(0, buffer, sizeof(buffer));
-		RP_SetJobDB(data, buffer);
-
-		results.FetchString(1, buffer, sizeof(buffer));
-		RP_SetRankDB(data, buffer);
-		/*results.FetchString(0, buffer, sizeof(buffer));
-		GetJobSQL(data, buffer, sizeof(buffer));
-		results.FetchString(1, buffer, sizeof(buffer));
-		GetRankSQL(data, buffer, sizeof(buffer));*/
+		
+		//results.FetchString(0, buffer, sizeof(buffer));
+		//results.FetchString(1, buffer2, sizeof(buffer2));
+		results.FetchString(0, g_jobid[data], sizeof(g_jobid[]));
+		results.FetchString(1, g_rankid[data], sizeof(g_rankid[]));
+		GetName(data, buffer, sizeof(buffer), buffer2, sizeof(buffer2));
+		//SetClientJobDB(data, buffer, buffer2);
+		g_jobid[data] = buffer;
+		g_rankid[data] = buffer2;
+		//g_jobid[data] = g_jobid[data];			// <======== если работа вновь не показывается, использовать этот вариант <========
+		//g_rankid[data] = g_rankid[data];
 
 		RP_Money[data] = results.FetchInt(2);
 		RP_Bank[data] = results.FetchInt(3);
 	}
 	else {
 		char query[512],
-			buffer2[128],
 			auth[32];
 			
 		Client_SteamID(data, auth, sizeof(auth));
 
-		GetJobSQL(data, buffer, sizeof(buffer));
-		GetRankSQL(data, buffer2, sizeof(buffer2));
-
+		//GetJobSQL(data, buffer, sizeof(buffer));
+		//GetRankSQL(data, buffer2, sizeof(buffer2));
+		g_kv.GetString("idlejob", buffer, sizeof(buffer));
+		g_kv.GetString("idlerank", buffer2, sizeof(buffer2));
+		//GetName(data, buffer, sizeof(buffer), buffer2, sizeof(buffer2));
+		
 		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buffer, buffer2, RP_Money[data], RP_Bank[data]);
 
 		DB_TQueryEx(query, _, 1);
@@ -582,16 +593,10 @@ void GetRankSQL(int client, char[] rank, int rankMaxlength)
 	g_kv.Rewind();
 }
 
-public void RP_SetJobDB(int client, char[] job) {
-	if (IsClientInGame(client)) {
-		strcopy(g_jobid[client], sizeof(g_jobid[]), job);
-	}
-}
-
-public void RP_SetRankDB(int client, char[] rank){
-	if (IsClientInGame(client)){
-		strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
-	}
+public void SetClientJobDB(int client, const char[] job, const char[] rank)
+{
+	strcopy(g_jobid[client], sizeof(g_jobid[]), job);
+	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
 }
 
 //////////////
@@ -605,10 +610,9 @@ public void ResetVariables(int client){
 	g_jobid[client] = g_sBuffer;
 	g_rankid[client] = g_sBuffer;
 	
-	//SetRespawnTimeKV(client);
-	RP_RespawnTime[client] = 0;
-	RP_LastMsg[client] = 0.0;
+	SetRespawnTimeKV(client);
 	SetSalaryMoneyKV(client);
+	RP_LastMsg[client] = 0.0;
 	
 	RP_Hud[client] = true;
 	
@@ -787,7 +791,9 @@ void SetClientJob(int client, const char[] job, const char[] rank)
 	SetSalaryMoneyKV(client);
 	if (IsPlayerAlive(client)) SetModelKV(client);
 	
-	DB_SaveClientJob(g_db, client);			// save client job
+	//DB_SaveClientJob(g_db, client);			// save client job
+	//DB_SaveClientMoney(client);
+	DB_SaveClientInfo(g_db, client);		// save player_info		[job,rank,money,bank,salary]
 }
 
 void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
@@ -856,7 +862,7 @@ public Action Chat_Say(int client, const char[] command, int args){
 		}
 		
 		RP_LastMsg[client] = GetEngineTime();
-		CPrintToChatAllEx(client, "\x01(GLOBAL) \x03%N: \x01%s", client, text);
+		CPrintToChatAllEx(client, "(\x01GLOBAL) \x03%N: \x01%s", client, text);
 		
 		return Plugin_Handled;
 	}
@@ -870,7 +876,7 @@ public Action Chat_Say(int client, const char[] command, int args){
 				}
 				
 				RP_LastMsg[client] = GetEngineTime();
-				CPrintToChatEx(i, client, "\x01(LOCAL) \x03%N: \x01%s", client, text);
+				CPrintToChatEx(i, client, "(\x01LOCAL) \x03%N: \x01%s", client, text);
 			}
 			return Plugin_Handled;
 		}
@@ -942,7 +948,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	SetTeamKV(client);				// Set the player team
 	SetModelKV(client);				// Set the player model
 	GiveWeaponKV(client);			// Give the player weapons
-	SetSalaryMoneyKV(client);
+	SetSalaryMoneyKV(client);		// if reset salary
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -961,9 +967,9 @@ public Action Cmd_MyJob(int client, int args)
 	if (client) {
 		char JobName[64], RankName[64];
 		GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
-		PrintToChat(client, "Your Job: %s \nRank: %s", JobName, RankName);
-		ChangeClientTeam(client, 2);
-		CS_RespawnPlayer(client);
+		PrintToChat(client, "Your Job: %s \nRank: %s \nRespawnTime: %d", JobName, RankName, RP_RespawnTime[client]);
+		//ChangeClientTeam(client, 2);
+		//CS_RespawnPlayer(client);
 	}
 
 	return Plugin_Handled;
@@ -1269,7 +1275,6 @@ stock bool RespawnClient(int client){
 	}
 	else if (RP_RespawnTime[client] == 0){
 		RP_RespawnTime[client] = -1;
-		
 		if (IsValidPlayer(client) && !IsPlayerAlive(client)) CS_RespawnPlayer(client);
 	}
 }
@@ -1279,7 +1284,6 @@ stock bool Timer_Salary(int client){
 		iSalaryEnd--;
 	}
 	else if (iSalaryEnd == 0) {
-		//SetSalaryMoneyKV(client);			// Set RP_Salary
 		GetSalaryMoneyKV(client);
 		DB_SaveClientMoney(client);			// DB save money
 		GetSalaryTimer();
@@ -1660,4 +1664,12 @@ public int inf(Menu panel, MenuAction action, int param1, int param2) {
 			PrintToChat(param1, "\x01Open \x03!hud \x01menu");
 		}
 	}
+}
+
+public Action CS_OnTerminateRound(float &delay, CSRoundEndReason &reason){
+	switch (reason){
+		case CSRoundEnd_CTWin, CSRoundEnd_TerroristWin, CSRoundEnd_Draw, CSRoundEnd_HostagesRescued, 
+		CSRoundEnd_TargetBombed, CSRoundEnd_BombDefused: return Plugin_Handled;
+	}
+	return Plugin_Continue;
 }

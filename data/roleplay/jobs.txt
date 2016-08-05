@@ -3,15 +3,15 @@
 	"idlejob" "idle"				// DONT TOUCH - UNEMPLOYED JOB
 	"idlerank" "idle"				// DONT TOUCH - UNEMPLOYED JOB
 	
-	"idle"
+	"idle"			// jobid
 	{
-		"name" "Unemployed"
-		"idle"
+		"name" "Unemployed"				// translate job
+		"idle"					// rankid
 		{
-			"name" "Hobo"
+			"name" "Unemployed"				// translate rank
 			"respawn_time" "15"
 			"salary" "50"				// salary get money
-			"tool" "weapon_knife"
+			"tool" "weapon_knife"		// spawn with weapon
 			"team" "2"
 			"model" "models/weapons/t_arms_anarchist.mdl"				// need precache model
 		}
@@ -22,7 +22,7 @@
 		"Cop"
 		{
 			"name" "Cop"
-			"respawn_time" "15"
+			"respawn_time" "10"
 			"salary" "100"				// salary get money
 			"tool" "weapon_knife"
 			"team" "3"
@@ -36,4 +36,5 @@
 "name"	"translation job/rank"
 "respawn_time"		"respawn timer if you dead. 1 or ..."
 "model"			"skin/model player"
+"salary"
 */

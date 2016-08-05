@@ -3,6 +3,6 @@
 	"atm_model"				"models/props_unique/atm01.mdl"
 	"money_model"			"models/props/cs_assault/money.mdl"
 	"localchat_distance"	"500.0"
-	"turn_fog"				"1"
-	"salary_timer"			"600"
+	"turn_fog"				"1"				// ON/OFF [1/0]
+	"salary_timer"			"600"			// salary timer in seconds
 }
