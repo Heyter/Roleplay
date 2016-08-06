@@ -1,19 +1,17 @@
 "jobs"
 {
-	"idlejob" "idle"				// DONT TOUCH - UNEMPLOYED JOB
-	"idlerank" "idle"				// DONT TOUCH - UNEMPLOYED JOB
+	"idlejob" "Unemployed"				// DONT TOUCH - idlejob, only "JOB". Example: "idlejob" "name job"
+	"idlerank" "Hobo"				// DONT TOUCH - idlerank only "RANK". Example: "idlerank" "name rank"
 	
-	"idle"			// jobid
+	"Unemployed"			// idlejob = "name job"
 	{
-		"name" "Unemployed"				// translate job
-		"idle"					// rankid
+		"Hobo"		// idlerank = "name rank"
 		{
-			"name" "Unemployed"				// translate rank
 			"respawn_time" "15"
-			"salary" "50"				// salary get money
-			"tool" "weapon_knife"		// spawn with weapon
+			"salary" "50"				// salary
+			"tool" "weapon_knife"
 			"team" "2"
-			"model" "models/weapons/t_arms_anarchist.mdl"				// need precache model
+			"model" "models/weapons/t_arms_anarchist.mdl"
 		}
 	}
 	
@@ -33,8 +31,7 @@
 /*
 "tool"	"weapon_awp"
 "team"	"2 or 3"		2 - T; 3 - CT;
-"name"	"translation job/rank"
+"name"	"translation job/rank"			[Dont use in unemployed job]
 "respawn_time"		"respawn timer if you dead. 1 or ..."
 "model"			"skin/model player"
-"salary"
 */
