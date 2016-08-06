@@ -9,9 +9,11 @@
 		{
 			"respawn_time" "15"
 			"salary" "50"				// salary
-			"tool" "weapon_knife"
 			"team" "2"
+			"health" "150"
+			"armor" "110"
 			"model" "models/weapons/t_arms_anarchist.mdl"
+			"tools" { "tool" "weapon_knife" }
 		}
 	}
 	
@@ -22,16 +24,19 @@
 			"name" "Cop"
 			"respawn_time" "10"
 			"salary" "100"				// salary get money
-			"tool" "weapon_knife"
+			"tools" { "tool" "weapon_knife"  "tool" "weapon_glock" }
 			"team" "3"
 		}
 	}
 }
 
 /*
-"tool"	"weapon_awp"
 "team"	"2 or 3"		2 - T; 3 - CT;
 "name"	"translation job/rank"			[Dont use in unemployed job]
 "respawn_time"		"respawn timer if you dead. 1 or ..."
 "model"			"skin/model player"
+"salary"		"100"
+"health"		"150"
+"armor"			"150"
+"tools"			{ "tool" "weapon_name"  "tool" "weapon_name"  "tool" "weapon_name" }			// or tools {}
 */

@@ -1,8 +1,10 @@
 "Settings"
 {
-	"atm_model"				"models/props_unique/atm01.mdl"
-	"money_model"			"models/props/cs_assault/money.mdl"
-	"localchat_distance"	"500.0"
-	"turn_fog"				"1"				// ON/OFF [1/0]
-	"salary_timer"			"600"			// salary timer in seconds
+	"atm_model"				"models/props_unique/atm01.mdl"			// ATM model		[Default: NO]
+	"money_model"			"models/props/cs_assault/money.mdl"		// Money model [sm_dropmoney <amount>; Default: NO]
+	"localchat_distance"	"500.0"			// Local chat distance 				[Default: 500.0]
+	"turn_fog"				"1"				// ON/OFF [1/0]		[Default: 0]
+	"salary_timer"			"600"			// salary timer in seconds			[Default: 500]
+	"start_money"			"100"			// money - cash		[Default: 0]
+	"start_bank"			"500"			// bank = money		[Default: 0]
 }

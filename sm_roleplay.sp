@@ -56,7 +56,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.06",
+	version = "alpha 0.07",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -95,6 +95,7 @@ public void OnPluginStart(){
 	RegAdminCmd("sm_dbsavemoney", sm_dbsavemoney, ADMFLAG_ROOT, "Force Server DB Save Money");
 	RegAdminCmd("sm_dbsavejobs", sm_dbsavejobs, ADMFLAG_ROOT, "Force Server DB Save Jobs");
 	RegAdminCmd("sm_adminmenu", sm_adminmenu, ADMFLAG_ROOT, "Admin menu - RP");
+	RegAdminCmd("sm_userlist", sm_userlist, ADMFLAG_ROOT, "User list");
 	
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("player_death", Event_PlayerDeath);
@@ -185,11 +186,7 @@ public void OnMapStart(){
 	ServerCommand("mp_do_warmup_period 0");
 	ServerCommand("mp_forcecamera 1");
 	
-	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
-	if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
-	
-	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
-	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+	PrecacheModels();
 	
 	GetSalaryTimer();
 	iSalaryEnd = iSalaryTimer;
@@ -429,11 +426,13 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 		//GetRankSQL(data, buffer2, sizeof(buffer2));
 		g_kv.GetString("idlejob", buff, sizeof(buff), g_jobid[data]);
 		g_kv.GetString("idlerank", buff2, sizeof(buff2), g_rankid[data]);
+		int start_money = view_as<int>(g_settingsKV.GetNum("start_money", 0)),
+			start_bank = view_as<int>(g_settingsKV.GetNum("start_bank", 0));
 		//g_jobid[data] = buff; g_rankid[data] = buff2;
 		//SetClientJobDB(client, buff, buff);
 		//GetName(data, buffer, sizeof(buffer), buffer2, sizeof(buffer2));
 		
-		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buff, buff2, RP_Money[data], RP_Bank[data]);
+		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buff, buff2, RP_Money[data] = start_money, RP_Bank[data] = start_bank);
 
 		DB_TQueryEx(query, _, 1);
 
@@ -843,6 +842,7 @@ void LoadKVSettings(){
 			GetFloatChatDistance();
 			GetNumFog();
 			GetSalaryTimer();
+			PrecacheModels();
 		} while (g_settingsKV.GotoNextKey());
 	}
 }
@@ -962,12 +962,13 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast){
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	RemoveWeapon(client);			// Disarm Player
-	
-	SetTeamKV(client);				// Set the player team
-	SetModelKV(client);				// Set the player model
-	GiveWeaponKV(client);			// Give the player weapons
-	SetSalaryMoneyKV(client);		// if reset salary
+	RemoveWeapon(client);				// Disarm Player
+	SetTeamKV(client);					// Set the player team
+	SetEntityArmorKV(client);			// Set player armor
+	SetEntityHealthKV(client);			// Set player health
+	GiveWeaponKV(client);				// Give the player weapons
+	SetModelKV(client);					// Set the player model
+	SetSalaryMoneyKV(client);			// if reset salary
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -1183,7 +1184,7 @@ public Action sm_dbsave(int client, int args){
 	for (int player = 1; player <= MaxClients; player++){
 		if (IsClientInGame(player)){
 			DB_SaveClient(player);
-			PrintToChat(client, "Successfully!");
+			PrintToChat(client, "DB save!");
 		}
 	}
 	return Plugin_Handled;
@@ -1193,7 +1194,7 @@ public Action sm_dbsavemoney(int client, int args){
 	for (int player = 1; player <= MaxClients; player++){
 		if (IsClientInGame(player)){
 			DB_SaveClientMoney(player);
-			PrintToChat(client, "Successfully!");
+			PrintToChat(client, "DB save money!");
 		}
 	}
 	return Plugin_Handled;
@@ -1203,7 +1204,7 @@ public Action sm_dbsavejobs(int client, int args){
 	for (int player = 1; player <= MaxClients; player++){
 		if (IsClientInGame(player)){
 			DB_SaveClientJob(g_db, player);
-			PrintToChat(client, "Successfully!");
+			PrintToChat(client, "DB save jobs!");
 		}
 	}
 	return Plugin_Handled;
@@ -1214,6 +1215,62 @@ public Action sm_hud(int client, int args){
 		RP_Hud[client] = true;
 	}
 	return Plugin_Handled;
+}
+
+public Action sm_userlist(int client, int args){
+	if (client && IsClientInGame(client)){
+		RP_Userlist(client);
+	}
+	return Plugin_Handled;
+}
+
+void RP_Userlist(int client){
+	Menu menu = new Menu(select_joblist); 
+	menu.SetTitle("[RP] User list");
+
+	AddTargToMenu(menu);
+
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+void AddTargToMenu(Menu menu) {
+	char userid[12], name[32];
+
+	for (int i = 1; i <= MaxClients; i++){
+		if (IsClientInGame(i)) {
+			IntToString(GetClientUserId(i), userid, sizeof(userid));
+			GetClientName(i, name, sizeof(name));
+
+			menu.AddItem(userid, name);
+		}
+	}
+}
+
+public int select_joblist(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+			char userid[12];
+			menu.GetItem(option, userid, sizeof(userid));
+			int target = StringToInt(userid);
+			if ((target = GetClientOfUserId(target)) == 0){
+				PrintToChat(client, "Client (userid: %i) is no longer available.", target);
+				return;
+			}
+			
+			char JobName[64], RankName[64], auth[32];
+			GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
+			GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth));
+			
+			PrintToChat(client, "Name: %N", target);
+			PrintToChat(client, "SteamID: %s", auth);
+			PrintToChat(client, "Job: %s", JobName);
+			PrintToChat(client, "Post: %s", RankName);
+			PrintToChat(client, "Cash: %i", RP_Money[target]);
+			PrintToChat(client, "Bank: %i", RP_Bank[target]);
+			PrintToChat(client, "Salary: %i", RP_Salary[target]);			// experimental
+        }
+    }
 }
 
 public Action sm_adminmenu(int client, int args){
@@ -1229,6 +1286,8 @@ void RP_AdminMenu(int client){
 	
 	menu.AddItem("jobs", "Jobs menu");
 	menu.AddItem("db_menu", "Database menu");
+	menu.AddItem("userlist", "User list");
+	menu.AddItem("configs", "Reload configs");
 	
 	menu.Display(client, MENU_TIME_FOREVER);
 }
@@ -1240,6 +1299,8 @@ public int select_adminmenu(Menu menu, MenuAction action, int client, int option
         	switch (option){
         		case 0: FakeClientCommand(client, "sm_jobs");
         		case 1: RP_dbmenu(client);
+        		case 2: FakeClientCommand(client, "sm_userlist");
+        		case 3: RP_configsmenu(client);
         	}
         }
     }
@@ -1264,6 +1325,28 @@ public int select_dbmenu(Menu menu, MenuAction action, int client, int option) {
 				case 0: FakeClientCommand(client, "sm_dbsave");
 				case 1: FakeClientCommand(client, "sm_dbsavemoney");
 				case 2: FakeClientCommand(client, "sm_dbsavejobs");
+        	}
+        }
+    }
+}
+
+void RP_configsmenu(int client){
+    Menu menu = new Menu(select_configs);
+    menu.SetTitle("[RP] Configs menu");
+   
+    menu.AddItem("rjobs", "Reload jobs.txt");
+    menu.AddItem("rsettings", "Reload settings.txt");
+   
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int select_configs(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+        	switch (option){
+				case 0: FakeClientCommand(client, "sm_reloadjobs");
+				case 1: FakeClientCommand(client, "sm_reloadsettings");
         	}
         }
     }
@@ -1346,16 +1429,6 @@ void SetTeamKV(int client){
 	}
 }
 
-void GiveWeaponKV(int client){
-	if (client && IsClientInGame(client)){
-		char branch[64], tool[32];
-		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch, tool, sizeof(tool));
-		if (tool[0] != '\0') 
-			GivePlayerItem(client, tool);
-	}
-}
-
 void SetRespawnTimeKV(int client){
 	char sRespawn[64]; int tRespawn;
 	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
@@ -1375,6 +1448,51 @@ void GetSalaryMoneyKV(int client){
 	FormatEx(sSalary, sizeof(sSalary), "%s/%s/salary", g_jobid[client], g_rankid[client]);
 	tSalary = g_kv.GetNum(sSalary);
 	RP_Money[client] += tSalary;
+}
+
+void SetEntityHealthKV(int client){
+	char sHealth[64]; int health;
+	FormatEx(sHealth, sizeof(sHealth), "%s/%s/health", g_jobid[client], g_rankid[client]);
+	health = g_kv.GetNum(sHealth);
+	if (health != 0){
+		SetEntityHealth(client, health);
+	} else SetEntityHealth(client, 100);
+}
+
+void SetEntityArmorKV(int client){
+	char sArmor[64]; int armor;
+	FormatEx(sArmor, sizeof(sArmor), "%s/%s/armor", g_jobid[client], g_rankid[client]);
+	armor = g_kv.GetNum(sArmor);
+	if (armor != 0){
+		SetEntProp(client, Prop_Send, "m_ArmorValue", armor);
+	} else SetEntProp(client, Prop_Send, "m_ArmorValue", 0);
+}
+
+/*
+void GiveWeaponKV(int client){
+	if (client && IsClientInGame(client)){
+		char branch[64], tool[32];
+		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
+		g_kv.GetString(branch, tool, sizeof(tool));
+		if (tool[0] != '\0')
+			GivePlayerItem(client, tool);
+	}
+}*/
+
+// Thanks Kailo
+void GiveWeaponKV(int client){
+    if (client && IsClientInGame(client)){
+        g_kv.JumpToKey(g_jobid[client]);
+        g_kv.JumpToKey(g_rankid[client]);
+        if (g_kv.JumpToKey("tools") && g_kv.GotoFirstSubKey(false)) {
+            char tool[32];
+            do {
+                g_kv.GetString(NULL_STRING, tool, sizeof(tool));
+                GivePlayerItem(client, tool);
+            } while (g_kv.GotoNextKey(false));
+        }
+        g_kv.Rewind();
+    }
 }
 
 //////////////////////////////
@@ -1593,7 +1711,7 @@ public int Select_withdrawtamount(Menu menu, MenuAction action, int client, int 
 				PrintToChat(client, "You withdraw all money");
 			}
 			
-			else if (RP_Money[client] >= amount){
+			else if (RP_Bank[client] >= amount){
 				RP_Bank[client] -= amount;
 				RP_Money[client] += amount;
 				PrintToChat(client, "You withdraw $%i money", amount);
@@ -1692,3 +1810,32 @@ public Action CS_OnTerminateRound(float &delay, CSRoundEndReason &reason){
 	}
 	return Plugin_Continue;
 }
+
+stock void PrecacheModels(){
+	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
+	if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
+	
+	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
+	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+}
+
+/* late... for recoil fire 	===> 	https://github.com/Kailo97/hidenseek-csgo/blob/master/addons/sourcemod/scripting/hidenseek.sp#L2007
+#define FFADE_PURGE            0x0010
+void ScreenFade(int iClient, int iFlags = FFADE_PURGE, const int iaColor[4] = {0, 0, 0, 0}, int iDuration = 0, int iHoldTime = 0){
+    Handle hScreenFade = StartMessageOne("Fade", iClient);
+    if (GetUserMessageType() == UM_BitBuf){
+		BfWriteShort(hScreenFade, iHoldTime * 500);
+		BfWriteShort(hScreenFade, iDuration * 500);
+		BfWriteShort(hScreenFade, iFlags);
+		BfWriteByte(hScreenFade, iaColor[0]);
+		BfWriteByte(hScreenFade, iaColor[1]);
+		BfWriteByte(hScreenFade, iaColor[2]);
+		BfWriteByte(hScreenFade, iaColor[3]);
+	} else {
+		PbSetInt(hScreenFade, "duration", iDuration * 500);
+		PbSetInt(hScreenFade, "hold_time", iHoldTime * 500);
+		PbSetInt(hScreenFade, "flags", iFlags);
+		PbSetColor(hScreenFade, "clr", iaColor);
+	}
+    EndMessage();
+}*/
