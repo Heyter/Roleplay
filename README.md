@@ -7,7 +7,9 @@ SM Roleplay Mod
 - Database: sqlite/mysql
 - Language: Multi
 - Recommended plugins: https://forums.alliedmods.net/showthread.php?t=199799
-### Features
+
+--- 
+Features
 * HUD
 * Salary, Money, Bank money.
 * DB.
