@@ -56,7 +56,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.05.half",
+	version = "alpha 0.06",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -403,8 +403,7 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 	if (!IsClientInGame(data)) return;
 
 	char buffer[MAX_NAME_LENGTH], buffer2[MAX_NAME_LENGTH];
-	if (results.HasResults && results.FetchRow()) { 
-		
+	if (results.HasResults && results.FetchRow()) {
 		//results.FetchString(0, buffer, sizeof(buffer));
 		//results.FetchString(1, buffer2, sizeof(buffer2));
 		results.FetchString(0, g_jobid[data], sizeof(g_jobid[]));
@@ -421,17 +420,20 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 	}
 	else {
 		char query[512],
-			auth[32];
+			auth[32],
+			buff[MAX_NAME_LENGTH], buff2[MAX_NAME_LENGTH];
 			
 		Client_SteamID(data, auth, sizeof(auth));
 
 		//GetJobSQL(data, buffer, sizeof(buffer));
 		//GetRankSQL(data, buffer2, sizeof(buffer2));
-		g_kv.GetString("idlejob", buffer, sizeof(buffer));
-		g_kv.GetString("idlerank", buffer2, sizeof(buffer2));
+		g_kv.GetString("idlejob", buff, sizeof(buff), g_jobid[data]);
+		g_kv.GetString("idlerank", buff2, sizeof(buff2), g_rankid[data]);
+		//g_jobid[data] = buff; g_rankid[data] = buff2;
+		//SetClientJobDB(client, buff, buff);
 		//GetName(data, buffer, sizeof(buffer), buffer2, sizeof(buffer2));
 		
-		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buffer, buffer2, RP_Money[data], RP_Bank[data]);
+		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buff, buff2, RP_Money[data], RP_Bank[data]);
 
 		DB_TQueryEx(query, _, 1);
 
@@ -593,22 +595,39 @@ void GetRankSQL(int client, char[] rank, int rankMaxlength)
 	g_kv.Rewind();
 }
 
-public void SetClientJobDB(int client, const char[] job, const char[] rank)
+/*
+stock void SetClientJobDB(int client, const char[] job, const char[] rank)
 {
 	strcopy(g_jobid[client], sizeof(g_jobid[]), job);
 	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
 }
+
+stock void GetNameUnemployed(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
+{
+	g_kv.JumpToKey("idle");
+	g_kv.GetString("name", job, jobMaxlength, g_jobid[client]);
+	g_kv.JumpToKey("idle2");
+	g_kv.GetString("name", rank, rankMaxlength, g_rankid[client]);
+	g_kv.Rewind();
+}
+
+stock void RP_SetDefaultJob(int client){
+	char buff[MAX_NAME_LENGTH];
+	g_kv.GetString("idlejob", buff, sizeof(buff));
+	g_kv.GetString("idlerank", buff, sizeof(buff));
+	SetClientJobDB(client, buff, buff);
+}*/
 
 //////////////
 // * JOBS * //
 //////////////
 
 public void ResetVariables(int client){
-	g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
+	/*g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
 	g_kv.GetString("idlerank", g_sBuffer, sizeof(g_sBuffer));
 	
 	g_jobid[client] = g_sBuffer;
-	g_rankid[client] = g_sBuffer;
+	g_rankid[client] = g_sBuffer;*/
 	
 	SetRespawnTimeKV(client);
 	SetSalaryMoneyKV(client);
