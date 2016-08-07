@@ -29,7 +29,13 @@ public void OnPluginStart(){
 	
 	RegAdminCmd("sm_rsettings", sm_rsettings, ADMFLAG_ROOT, "Reload config settings.txt");		// sm_roleplay.sp
 	
+	HookEvent("round_start", Event_RoundStart);
+	
 	LoadKVSettings();
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast){
+	LoadProps();
 }
 
 public Action sm_rsettings(int client, int args){
