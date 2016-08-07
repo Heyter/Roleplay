@@ -1,8 +1,18 @@
 #pragma semicolon 1
 #include <sdktools>
+#include <sdkhooks>
 #include <colors_csgo>
 #include <cstrike>
 #pragma newdecls required
+
+// * Fade Defines * //
+#define FFADE_IN               0x0001
+#define FFADE_OUT              0x0002
+#define FFADE_MODULATE         0x0004
+#define FFADE_STAYOUT          0x0008
+#define FFADE_PURGE            0x0010
+
+#define DEATH_COLOR           {0,0,0,255}
 
 #define MIN_DISTANCE_USE 100
 #define IDSIZE 32
@@ -17,11 +27,10 @@ char db_prefix[15] = "rp_",
 	Logs[256] = "addons/sourcemod/logs/rp_logs.log";
 
 ConVar Database_prefix;
+// * Player Global * //
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
 	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1];
-
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
-	
 float RP_LastMsg[MAXPLAYERS + 1];
 bool RP_Hud[MAXPLAYERS + 1];
 
@@ -53,10 +62,11 @@ char Forbidden_Commands[][] = {
     "jointeam",		"suicide",
 };
 
+// * Plugin info * //
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.07",
+	version = "alpha 0.07.half",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -150,6 +160,7 @@ public void OnClientPutInServer(int client) {
 	CreateTimer(1.0, Timer_1, client);
 	
 	ResetVariables(client);
+	SDKHookEx(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	DB_OnClientPutInServer(client);
 }
 
@@ -175,6 +186,7 @@ public void OnClientDisconnect(int client){
 		return;
 	}
 	DB_SaveClient(client);
+	SDKUnhook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 }
 
 public void OnMapStart(){
@@ -969,11 +981,35 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	GiveWeaponKV(client);				// Give the player weapons
 	SetModelKV(client);					// Set the player model
 	SetSalaryMoneyKV(client);			// if reset salary
+	ScreenFade(client);					// Fade creen if player spawn
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	SetRespawnTimeKV(client);
+	SetRespawnTimeKV(client);			// Set respawn time
+	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 4, RoundToFloor(RP_RespawnTime[client] - 0.5));				// Fade screen if player dead
+	
+	int iDropMoney = view_as<bool>(g_settingsKV.GetNum("dropmoney", 1));
+	if (iDropMoney){						// Enable/Disable dropmoney
+		if (RP_Money[client] != 0){			// If a player is dead then dropmoney
+			int iMinDrop = view_as<int>(g_settingsKV.GetNum("min_dropmoney", 1)),
+				iMaxDrop = view_as<int>(g_settingsKV.GetNum("max_dropmoney", 500));
+			
+			int random = GetRandomInt(iMinDrop, iMaxDrop),			// amount
+				dropmoney = 0;
+			
+			if (RP_Money[client] - random < 1){
+				PrintToChat(client, "You lost all the money");
+				dropmoney = RP_Money[client];
+				RP_Money[client] = 0;
+			} else {
+				PrintToChat(client, "You lost $%i", random);
+				RP_Money[client] -= random;
+				dropmoney = random;
+			}
+			Drop_Money(client, dropmoney);
+		}
+	}
 }
 
 void RegCvars(){
@@ -1519,6 +1555,14 @@ void GetSalaryTimer(){
 	iSalaryTimer = view_as<int>(g_settingsKV.GetNum("salary_timer", 500));
 }
 
+stock void PrecacheModels(){
+	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
+	if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
+	
+	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
+	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+}
+
 ////////////////////////
 // * OnPlayerRunCmd * //
 ////////////////////////
@@ -1565,7 +1609,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 							if (0 < StringToInt(amount)){
 								RemoveEdict(ent);
 								RP_Money[client] += StringToInt(amount);
-								PrintToChat(client, "You pick up %d", StringToInt(amount));
+								PrintToChat(client, "You pick up $%i", StringToInt(amount));
 							}
 						}
 					}
@@ -1811,16 +1855,41 @@ public Action CS_OnTerminateRound(float &delay, CSRoundEndReason &reason){
 	return Plugin_Continue;
 }
 
-stock void PrecacheModels(){
-	g_settingsKV.GetString("money_model", money_model, sizeof(money_model));
-	if (!IsModelPrecached(money_model)) PrecacheModel(money_model, true);
-	
-	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
-	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	if (!attacker || !victim || attacker == victim || attacker >= MaxClients || victim >= MaxClients || damagetype & DMG_FALL) return Plugin_Continue;
+
+	if (!IsValidPlayer(attacker) || !IsValidPlayer(victim)) return Plugin_Continue;
+
+	char weapon[32];
+	GetClientWeapon(attacker, weapon, sizeof(weapon));
+
+	if (StrContains(weapon, "knife") != -1)
+	{
+		//ArrayJob job = new ArrayJob(file_job);
+
+		//bool arresta = view_as<bool>(job.GetById(ParamData_Int, "arrest", attacker.JobId,	attacker.PostId)	== -1 ? job.GetById(ParamData_Int, "arrest", attacker.JobId)	: job.GetById(ParamData_Int, "arrest", attacker.JobId,	attacker.PostId)),
+		//	 arrestv = view_as<bool>(job.GetById(ParamData_Int, "arrest", victim.JobId,		victim.PostId)		== -1 ? job.GetById(ParamData_Int, "arrest", victim.JobId)		: job.GetById(ParamData_Int, "arrest", victim.JobId,	victim.PostId));
+
+		//delete job;
+
+		//if (arresta
+		//&&  !arrestv)
+		//{
+			//PrintToChatAll("\x01\x0B \x04%s\x01 Был арестован и посажен в тюрьму: %N", PREFIX, victim.Index);
+		//}
+		switch (GetClientTeam(attacker)){
+			case 3: {
+				damage = 0.0;
+				return Plugin_Changed;
+			}
+		}
+	}
+
+	return Plugin_Continue;
 }
 
-/* late... for recoil fire 	===> 	https://github.com/Kailo97/hidenseek-csgo/blob/master/addons/sourcemod/scripting/hidenseek.sp#L2007
-#define FFADE_PURGE            0x0010
+//https://github.com/Kailo97/hidenseek-csgo/blob/master/addons/sourcemod/scripting/hidenseek.sp#L2007
 void ScreenFade(int iClient, int iFlags = FFADE_PURGE, const int iaColor[4] = {0, 0, 0, 0}, int iDuration = 0, int iHoldTime = 0){
     Handle hScreenFade = StartMessageOne("Fade", iClient);
     if (GetUserMessageType() == UM_BitBuf){
@@ -1838,4 +1907,4 @@ void ScreenFade(int iClient, int iFlags = FFADE_PURGE, const int iaColor[4] = {0
 		PbSetColor(hScreenFade, "clr", iaColor);
 	}
     EndMessage();
-}*/
+}

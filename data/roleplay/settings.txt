@@ -7,4 +7,7 @@
 	"salary_timer"			"600"			// salary timer in seconds			[Default: 500]
 	"start_money"			"100"			// money - cash		[Default: 0]
 	"start_bank"			"500"			// bank = money		[Default: 0]
+	"dropmoney"				"1"				// Enable/Disable [1/0] dropmoney , if player dead. [Default: 1]
+	"min_dropmoney"			"1"				// minimal amount drop money, if player dead. 		[Default: 1]
+	"max_dropmoney"			"500"			// maximal amount drop money, if player dead. 		[Default: 500]
 }
