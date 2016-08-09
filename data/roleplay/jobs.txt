@@ -19,6 +19,7 @@
 	
 	"Police"
 	{
+		"rookie"	"Cop"
 		"Cop"
 		{
 			"name" "Cop"
@@ -27,16 +28,36 @@
 			"tools" { "tool" "weapon_knife"  "tool" "weapon_glock" }
 			"team" "3"
 		}
+		
+		"boss"		"Chief"
+		"Chief"
+		{
+			"name" "Chief"
+			"respawn_time" "10"
+			"salary" "125"				// salary get money
+			"tools" { "tool" "weapon_knife"  "tool" "weapon_usp_silencer"  "tool" "weapon_ak47" }
+			"team" "3"
+		}
+	}
+	
+	"Mafia"
+	{
+		"rookie"	"Test"
+		"Test"
+		{
+			"respawn_time" "5"
+			"salary" "1"				// salary get money
+			"tools" { "tool" "weapon_knife"  "tool" "weapon_deagle" }
+			"team" "3"
+		}
+		
+		"boss"		"C.Boss"
+		"C.Boss"
+		{
+			"respawn_time" "4"
+			"salary" "5"				// salary get money
+			"tools" { "tool" "weapon_knife"  "tool" "weapon_awp"}
+			"team" "3"
+		}
 	}
 }
-
-/*
-"team"	"2 or 3"		2 - T; 3 - CT;
-"name"	"translation job/rank"			[Dont use in unemployed job]
-"respawn_time"		"respawn timer if you dead. 1 or ..."
-"model"			"skin/model player"
-"salary"		"100"
-"health"		"150"
-"armor"			"150"
-"tools"			{ "tool" "weapon_name"  "tool" "weapon_name"  "tool" "weapon_name" }			// or tools {}
-*/

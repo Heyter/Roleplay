@@ -15,7 +15,7 @@
 #define DEATH_COLOR           {0,0,0,255}
 
 #define MIN_DISTANCE_USE 100
-#define IDSIZE 32
+#define IDSIZE 64
 
 // macross
 //#define RemoveJob(%1) SetClientJob(%1, "", ""), CS_SwitchTeam(%1, CS_TEAM_T)
@@ -66,7 +66,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.07.half",
+	version = "alpha 0.08",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -87,16 +87,16 @@ public void OnPluginStart(){
 	BuildJobsMenu();
 	// * KeyValues - settings.txt * //
 	LoadKVSettings();
-
-	RegConsoleCmd("sm_myjob", Cmd_MyJob, "Test command");
 	
 	RegConsoleCmd("sm_dropmoney", sm_dropmoney, "sm_dropmoney <amount>");
 	RegConsoleCmd("sm_hud", sm_hud, "Open RP hud menu");
+	RegConsoleCmd("sm_invitejob", sm_invitejob, "Invite to work, only boss");
+	RegConsoleCmd("sm_leavejob", sm_leavejob, "Leave job");
 
 	RegAdminCmd("sm_jobs", Cmd_Jobs, ADMFLAG_ROOT, "Set job for player");
 	RegAdminCmd("sm_reloadsettings", sm_ReloadSettings, ADMFLAG_ROOT, "Reload config settings.txt");
 	RegAdminCmd("sm_reloadjobs", Cmd_ReloadJobs, ADMFLAG_ROOT, "Reload config jobs.txt");
-	RegAdminCmd("sm_unemployed", sm_unemployed, ADMFLAG_ROOT, "Set unemployed for player");
+	RegAdminCmd("sm_unemployed", sm_unemployed, ADMFLAG_ROOT, "Set unemployed for player");				// Experimental
 	RegAdminCmd("sm_givemoney", sm_givemoney, ADMFLAG_ROOT, "Give money");
 	RegAdminCmd("sm_setmoney", sm_setmoney, ADMFLAG_ROOT, "Set money");
 	RegAdminCmd("sm_givebank", sm_givebank, ADMFLAG_ROOT, "Give money in bank");
@@ -434,15 +434,10 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 			
 		Client_SteamID(data, auth, sizeof(auth));
 
-		//GetJobSQL(data, buffer, sizeof(buffer));
-		//GetRankSQL(data, buffer2, sizeof(buffer2));
 		g_kv.GetString("idlejob", buff, sizeof(buff), g_jobid[data]);
 		g_kv.GetString("idlerank", buff2, sizeof(buff2), g_rankid[data]);
 		int start_money = view_as<int>(g_settingsKV.GetNum("start_money", 0)),
 			start_bank = view_as<int>(g_settingsKV.GetNum("start_bank", 0));
-		//g_jobid[data] = buff; g_rankid[data] = buff2;
-		//SetClientJobDB(client, buff, buff);
-		//GetName(data, buffer, sizeof(buffer), buffer2, sizeof(buffer2));
 		
 		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buff, buff2, RP_Money[data] = start_money, RP_Bank[data] = start_bank);
 
@@ -606,40 +601,11 @@ void GetRankSQL(int client, char[] rank, int rankMaxlength)
 	g_kv.Rewind();
 }
 
-/*
-stock void SetClientJobDB(int client, const char[] job, const char[] rank)
-{
-	strcopy(g_jobid[client], sizeof(g_jobid[]), job);
-	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
-}
-
-stock void GetNameUnemployed(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
-{
-	g_kv.JumpToKey("idle");
-	g_kv.GetString("name", job, jobMaxlength, g_jobid[client]);
-	g_kv.JumpToKey("idle2");
-	g_kv.GetString("name", rank, rankMaxlength, g_rankid[client]);
-	g_kv.Rewind();
-}
-
-stock void RP_SetDefaultJob(int client){
-	char buff[MAX_NAME_LENGTH];
-	g_kv.GetString("idlejob", buff, sizeof(buff));
-	g_kv.GetString("idlerank", buff, sizeof(buff));
-	SetClientJobDB(client, buff, buff);
-}*/
-
 //////////////
 // * JOBS * //
 //////////////
 
 public void ResetVariables(int client){
-	/*g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
-	g_kv.GetString("idlerank", g_sBuffer, sizeof(g_sBuffer));
-	
-	g_jobid[client] = g_sBuffer;
-	g_rankid[client] = g_sBuffer;*/
-	
 	SetRespawnTimeKV(client);
 	SetSalaryMoneyKV(client);
 	RP_LastMsg[client] = 0.0;
@@ -662,11 +628,9 @@ stock bool RP_IsUnemployed(int client){
 
 // RP_RemoveJob - set unemployed job for player.
 stock void RP_RemoveJob(int client){
-	g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
-	g_kv.GetString("idlerank", g_sBuffer, sizeof(g_sBuffer));
-	SetClientJob(client, g_sBuffer, g_sBuffer);
-	//CS_SwitchTeam(client, CS_TEAM_T);
-}
+	g_kv.GetString("idlejob", g_jobid[client], sizeof(g_jobid[]));
+	g_kv.GetString("idlerank", g_rankid[client], sizeof(g_rankid[]));
+}   
 
 stock int Client_FindBySteamId(const char[] auth)
 {
@@ -817,13 +781,8 @@ void SetClientJob(int client, const char[] job, const char[] rank)
 	strcopy(g_jobid[client], sizeof(g_jobid[]), job);
 	strcopy(g_rankid[client], sizeof(g_rankid[]), rank);
 	
-	SetTeamKV(client);
-	SetSalaryMoneyKV(client);
-	if (IsPlayerAlive(client)) SetModelKV(client);
-	
-	//DB_SaveClientJob(g_db, client);			// save client job
-	//DB_SaveClientMoney(client);
-	DB_SaveClientInfo(g_db, client);		// save player_info		[job,rank,money,bank,salary]
+	SetJobKV(client);			// set kv variables
+	DB_SaveClientInfo(g_db, client);		// save player_info		[job,rank,money,bank]
 }
 
 void GetName(int client, char[] job, int jobMaxlength, char[] rank, int rankMaxlength)
@@ -1016,19 +975,6 @@ void RegCvars(){
 	Database_prefix = CreateConVar("sm_rp_dbprefix", db_prefix, "Prefix database");
 	Database_prefix.GetString(db_prefix, sizeof(db_prefix));
 	Database_prefix.AddChangeHook(CvarChange);
-}
-
-public Action Cmd_MyJob(int client, int args)
-{
-	if (client) {
-		char JobName[64], RankName[64];
-		GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
-		PrintToChat(client, "Your Job: %s \nRank: %s \nRespawnTime: %d", JobName, RankName, RP_RespawnTime[client]);
-		//ChangeClientTeam(client, 2);
-		//CS_RespawnPlayer(client);
-	}
-
-	return Plugin_Handled;
 }
 
 public Action Cmd_ReloadJobs(int client, int args)
@@ -1401,6 +1347,7 @@ public Action OnEverySecond(Handle timer) {
 				}
 				else if (RP_Hud[i] != false) ShowPanel(i);				// hud menu
 				Timer_Salary(i);
+				GetInfoEntity(i);			// Print Hint player id
 			}
 		}
 	}
@@ -1424,6 +1371,7 @@ stock bool Timer_Salary(int client){
 	else if (iSalaryEnd == 0) {
 		GetSalaryMoneyKV(client);
 		DB_SaveClientMoney(client);			// DB save money
+		PrintToChat(client, "You got salary");
 		GetSalaryTimer();
 		iSalaryEnd = iSalaryTimer;
 	}
@@ -1503,17 +1451,6 @@ void SetEntityArmorKV(int client){
 		SetEntProp(client, Prop_Send, "m_ArmorValue", armor);
 	} else SetEntProp(client, Prop_Send, "m_ArmorValue", 0);
 }
-
-/*
-void GiveWeaponKV(int client){
-	if (client && IsClientInGame(client)){
-		char branch[64], tool[32];
-		FormatEx(branch, sizeof(branch), "%s/%s/tool", g_jobid[client], g_rankid[client]);
-		g_kv.GetString(branch, tool, sizeof(tool));
-		if (tool[0] != '\0')
-			GivePlayerItem(client, tool);
-	}
-}*/
 
 // Thanks Kailo
 void GiveWeaponKV(int client){
@@ -1789,6 +1726,33 @@ public bool TRDontHitSelf(int entity, int mask, any data) {
     return !(entity == data);
 }
 
+public bool TRDontHitTarget(int entity, int mask, any data)
+{
+	if (entity == data) return false;
+	return true;
+}
+
+stock int AimTargetPlayer(int client) {
+	float m_vecOrigin[3],
+		m_angRotation[3];
+
+	GetClientEyePosition(client, m_vecOrigin);
+	GetClientEyeAngles(client, m_angRotation);
+
+	Handle tr = TR_TraceRayFilterEx(m_vecOrigin, m_angRotation, MASK_VISIBLE, RayType_Infinite, TRDontHitTarget, client);
+	if (TR_DidHit(tr)) {
+		int pEntity = TR_GetEntityIndex(tr);
+		if (0 < pEntity < MaxClients)
+		{
+			delete tr;
+			return pEntity;
+		}
+	}
+
+	delete tr;
+	return -1;
+}
+
 stock void GetTargetName(int entity, char[] buf, int len){
 	GetEntPropString(entity, Prop_Data, "m_iName", buf, len);
 }
@@ -1907,4 +1871,87 @@ void ScreenFade(int iClient, int iFlags = FFADE_PURGE, const int iaColor[4] = {0
 		PbSetColor(hScreenFade, "clr", iaColor);
 	}
     EndMessage();
+}
+
+// Experemintal
+/*
+stock void GetRookieLVL(int client, char[] rookie, int rookielen){
+	g_kv.JumpToKey(g_jobid[client]);
+	g_kv.GetString("rookie", rookie, rookielen);
+	g_kv.Rewind();
+}*/
+// char buff[MAX_NAME_LENGTH];
+// g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
+// g_rankid[target] = GetRookieLVL(client, buff, sizeof(buff));
+// g_jobid[target] = g_jobid[client];
+
+stock bool RP_IsBoss(int client){
+	g_kv.JumpToKey(g_jobid[client]);
+	char sBoss[64];
+	g_kv.GetString("boss", sBoss, sizeof(sBoss), g_rankid[client]);
+	if (StrContains(g_rankid[client], sBoss, false) != -1){
+		g_kv.Rewind();
+		return true;
+	}
+	g_kv.Rewind();
+	return false;
+}
+
+public Action sm_invitejob(int client, int args){
+	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		if (RP_IsBoss(client) && !RP_IsUnemployed(client)){
+			int target = AimTargetPlayer(client);
+			if (target != -1){
+				if (RP_IsUnemployed(target)){
+					g_jobid[target] = g_jobid[client];
+					g_kv.JumpToKey(g_jobid[target]);
+					//char buff[MAX_NAME_LENGTH];
+					//g_kv.GetString("rookie", buff, sizeof(buff));
+					g_kv.GetString("rookie", g_rankid[target], sizeof(g_rankid[]));
+					g_kv.Rewind();
+					SetJobKV(target);
+					DB_SaveClientInfo(g_db, target);		// save player_info		[job,rank,money,bank]
+					
+					char JobName[64], RankName[64];
+					GetName(target, JobName, sizeof(JobName), RankName, sizeof(RankName));
+					PrintToChat(client, "You invited %N: Job: %s | Post: %s", target, JobName, RankName);
+					PrintToChat(target, "Your new Job: %s | Post: %s", JobName, RankName);
+					
+				} else PrintToChat(client, "%N not unemployed.", target);
+			} else PrintToChat(client, "This is not a player!");
+		} else PrintToChat(client, "You are not the boss!");
+	}
+	return Plugin_Handled;
+}
+
+void SetJobKV(int client){
+	SetTeamKV(client);
+	SetSalaryMoneyKV(client);
+	if (IsPlayerAlive(client)) SetModelKV(client);
+}
+
+stock void GetInfoEntity(int client) {
+	int target = AimTargetPlayer(client);
+	if (target <= 0) {
+		return;
+	}
+	
+	if (IsValidPlayer(target)) {
+		char JobName[64], RankName[64];
+		GetName(target, JobName, sizeof(JobName), RankName, sizeof(RankName));
+
+		PrintHintText(client, "%N [HP:%d]\nJob: %s\nPost: %s", target, GetEntProp(target, Prop_Send, "m_iHealth"), JobName, RankName);
+	}
+}
+
+public Action sm_leavejob(int client, int args){
+	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		if (!RP_IsUnemployed(client)){
+			RP_RemoveJob(client);
+			SetJobKV(client);
+			DB_SaveClientInfo(g_db, client);		// save player_info		[job,rank,money,bank]
+			PrintToChat(client, "Вы теперь безработный");
+		} else PrintToChat(client, "Denied");
+	}
+	return Plugin_Handled;
 }
