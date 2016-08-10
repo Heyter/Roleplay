@@ -66,7 +66,7 @@ char Forbidden_Commands[][] = {
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.08",
+	version = "alpha 0.09",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -92,6 +92,7 @@ public void OnPluginStart(){
 	RegConsoleCmd("sm_hud", sm_hud, "Open RP hud menu");
 	RegConsoleCmd("sm_invitejob", sm_invitejob, "Invite to work, only boss");
 	RegConsoleCmd("sm_leavejob", sm_leavejob, "Leave job");
+	RegConsoleCmd("sm_myjob", sm_myjob, "Job menu, only boss");
 
 	RegAdminCmd("sm_jobs", Cmd_Jobs, ADMFLAG_ROOT, "Set job for player");
 	RegAdminCmd("sm_reloadsettings", sm_ReloadSettings, ADMFLAG_ROOT, "Reload config settings.txt");
@@ -199,9 +200,6 @@ public void OnMapStart(){
 	ServerCommand("mp_forcecamera 1");
 	
 	PrecacheModels();
-	
-	GetSalaryTimer();
-	iSalaryEnd = iSalaryTimer;
 }
 
 public void CvarChange(ConVar convar, const char[] oldValue, const char[] newValue) {
@@ -292,6 +290,7 @@ void DB_CreateTables(Database db) {
 
 		FormatEx(query, sizeof(query), "CREATE TABLE IF NOT EXISTS `%splayers_info` (\
 							  `id` int(5) NOT NULL,\
+							  `name` varchar(32) NOT NULL DEFAULT 'unknown',\
 							  `auth` varchar(22) NOT NULL,\
 							  `jobid` varchar(32) NOT NULL DEFAULT 'idlejob',\
 							  `rankid` varchar(32) NOT NULL DEFAULT 'idlerank',\
@@ -312,6 +311,7 @@ void DB_CreateTables(Database db) {
 		
 		FormatEx(query, sizeof(query), "CREATE TABLE IF NOT EXISTS `%splayers_info` (\
 							  `id` INTEGER PRIMARY KEY,\
+							  `name` VARCHAR DEFAULT 'unknown',\
 							  `auth` VARCHAR UNIQUE ON CONFLICT IGNORE,\
 							  `jobid` VARCHAR DEFAULT 'idlejob',\
 							  `rankid` VARCHAR DEFAULT 'idlerank',\
@@ -429,9 +429,12 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 	}
 	else {
 		char query[512],
-			auth[32],
-			buff[MAX_NAME_LENGTH], buff2[MAX_NAME_LENGTH];
-			
+			auth[32], sNBuffer[65],
+			buff[MAX_NAME_LENGTH], buff2[MAX_NAME_LENGTH], name[MAX_NAME_LENGTH];
+		
+		Client_GetName(data, name, sizeof(name));
+		EscapeString(db, name, sNBuffer, sizeof(sNBuffer));
+		
 		Client_SteamID(data, auth, sizeof(auth));
 
 		g_kv.GetString("idlejob", buff, sizeof(buff), g_jobid[data]);
@@ -439,7 +442,7 @@ public void DB_LoadClientInfo_Select(Database db, DBResultSet results, const cha
 		int start_money = view_as<int>(g_settingsKV.GetNum("start_money", 0)),
 			start_bank = view_as<int>(g_settingsKV.GetNum("start_bank", 0));
 		
-		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%d', '%d');", db_prefix, auth, buff, buff2, RP_Money[data] = start_money, RP_Bank[data] = start_bank);
+		FormatEx(query, sizeof(query), "INSERT INTO `%splayers_info` (`name`, `auth`, `jobid`, `rankid`, `money`, `bank_money`) VALUES ('%s', '%s', '%s', '%s', '%d', '%d');", db_prefix, sNBuffer, auth, buff, buff2, RP_Money[data] = start_money, RP_Bank[data] = start_bank);
 
 		DB_TQueryEx(query, _, 1);
 
@@ -477,7 +480,11 @@ void DB_SaveClientInfo(Database db, int client, DBPriority prio = DBPrio_Normal)
 	char query[512],
 		 jobname[MAX_NAME_LENGTH],
 		 rankname[MAX_NAME_LENGTH],
+		 name[MAX_NAME_LENGTH],
 		 auth[32];
+		 
+	Client_GetName(client, name, sizeof(name));
+	EscapeString(g_db, name, name, sizeof(name));
 
 	GetJobSQL(client, jobname, sizeof(jobname));
 	EscapeString(db, jobname, jobname, sizeof(jobname));
@@ -487,7 +494,7 @@ void DB_SaveClientInfo(Database db, int client, DBPriority prio = DBPrio_Normal)
 	
 	Client_SteamID(client, auth, sizeof(auth));
 
-	FormatEx(query, sizeof(query), "UPDATE `%splayers_info` SET `jobid` = '%s', `rankid` = '%s', `money` = %d, `bank_money` = %d WHERE `auth` = '%s';", db_prefix, jobname, rankname, RP_Money[client], RP_Bank[client], auth);
+	FormatEx(query, sizeof(query), "UPDATE `%splayers_info` SET `name` = '%s', `jobid` = '%s', `rankid` = '%s', `money` = %d, `bank_money` = %d WHERE `auth` = '%s';", db_prefix, name, jobname, rankname, RP_Money[client], RP_Bank[client], auth);
 
 	DB_TQueryEx(query, prio, 3);
 }
@@ -923,6 +930,9 @@ stock bool Drop_Money(int client, int amount){
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast){
+	GetSalaryTimer();
+	iSalaryEnd = iSalaryTimer;
+	
 	if (iFog){
 		int ent;
 		if ((ent = FindEntityByClassname(-1, "env_fog_controller")) != -1) {
@@ -1008,6 +1018,8 @@ public Action sm_unemployed(int client, int args){
 		if (target != -1 && IsClientInGame(target)){
 			if (!RP_IsUnemployed(target)){
 				RP_RemoveJob(target);
+				SetJobKV(target);
+				DB_SaveClientInfo(g_db, target);
 				PrintToChat(target, "ADMIN: Вы теперь безработный");
 				PrintToChat(client, "%N теперь безработный", target);
 			} else PrintToChat(client, "%N уже безработный", target);
@@ -1241,8 +1253,8 @@ public int select_joblist(Menu menu, MenuAction action, int client, int option) 
 			}
 			
 			char JobName[64], RankName[64], auth[32];
-			GetName(client, JobName, sizeof(JobName), RankName, sizeof(RankName));
-			GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth));
+			GetName(target, JobName, sizeof(JobName), RankName, sizeof(RankName));
+			GetClientAuthId(target, AuthId_Steam2, auth, sizeof(auth));
 			
 			PrintToChat(client, "Name: %N", target);
 			PrintToChat(client, "SteamID: %s", auth);
@@ -1346,10 +1358,10 @@ public Action OnEverySecond(Handle timer) {
 					RespawnClient(i);
 				}
 				else if (RP_Hud[i] != false) ShowPanel(i);				// hud menu
-				Timer_Salary(i);
 				GetInfoEntity(i);			// Print Hint player id
 			}
 		}
+		Timer_Salary();
 	}
 }
 
@@ -1364,14 +1376,19 @@ stock bool RespawnClient(int client){
 	}
 }
 
-stock bool Timer_Salary(int client){
+stock bool Timer_Salary(){
 	if (iSalaryEnd > 0) {
 		iSalaryEnd--;
 	}
 	else if (iSalaryEnd == 0) {
-		GetSalaryMoneyKV(client);
-		DB_SaveClientMoney(client);			// DB save money
-		PrintToChat(client, "You got salary");
+		for (int i = 1; i <= MaxClients; i++) {
+			if (IsValidPlayer(i) && GetClientTeam(i) > 1) {
+				GetSalaryMoneyKV(i);
+				//DB_SaveClientMoney(client);			// DB save money
+				DB_SaveClientInfo(g_db, i);		// DB save players
+				PrintToChat(i, "You got salary");
+			}
+		}
 		GetSalaryTimer();
 		iSalaryEnd = iSalaryTimer;
 	}
@@ -1873,18 +1890,6 @@ void ScreenFade(int iClient, int iFlags = FFADE_PURGE, const int iaColor[4] = {0
     EndMessage();
 }
 
-// Experemintal
-/*
-stock void GetRookieLVL(int client, char[] rookie, int rookielen){
-	g_kv.JumpToKey(g_jobid[client]);
-	g_kv.GetString("rookie", rookie, rookielen);
-	g_kv.Rewind();
-}*/
-// char buff[MAX_NAME_LENGTH];
-// g_kv.GetString("idlejob", g_sBuffer, sizeof(g_sBuffer));
-// g_rankid[target] = GetRookieLVL(client, buff, sizeof(buff));
-// g_jobid[target] = g_jobid[client];
-
 stock bool RP_IsBoss(int client){
 	g_kv.JumpToKey(g_jobid[client]);
 	char sBoss[64];
@@ -1954,4 +1959,172 @@ public Action sm_leavejob(int client, int args){
 		} else PrintToChat(client, "Denied");
 	}
 	return Plugin_Handled;
+}
+
+public Action sm_myjob(int client, int args)
+{	
+	if (client && IsClientInGame(client)){
+		if (RP_IsBoss(client) && !RP_IsUnemployed(client)){
+			DB_LoadJobs(client);
+		} else PrintToChat(client, "You are not the boss!");
+	}
+	return Plugin_Handled;
+}
+
+void DB_LoadJobs(int client, DBPriority prio = DBPrio_Normal) {
+    if (g_db == null) return;
+ 
+    char query[512];
+ 
+    FormatEx(query, sizeof(query), "SELECT `rankid`, `name`, `auth` FROM `%splayers_info` WHERE jobid = '%s';", db_prefix, g_jobid[client]);
+ 
+    g_db.Query(DB_LoadJobs_Select, query, client, prio);
+}
+
+public void DB_LoadJobs_Select(Database db, DBResultSet results, const char[] error, any client) {
+    if (!IsClientInGame(client)) return;
+    
+    if (results == null) ThrowError("DB_LoadJobs_Select results error query: %s", error);
+ 
+    Menu menu = new Menu(MyJobMenu_Select);
+    menu.SetTitle("[RP] Job Menu");
+    char RankName[64], name[64], auth[32], online[64]; //buff[64];
+    while (results.HasResults && results.FetchRow()) {
+		results.FetchString(0, RankName, sizeof(RankName));
+		results.FetchString(1, name, sizeof(name));
+		results.FetchString(2, auth, sizeof(auth));
+		
+		for (int i = 1; i <= MaxClients; i++){
+			if (!IsClientInGame(i)) continue;
+			char steam[32];
+			GetClientAuthId(i, AuthId_Steam2, steam, sizeof(steam));
+			if (strcmp(steam, auth) == 0){
+				FormatEx(online, sizeof(online), "Online: %s", name);
+				break;
+			} else {
+				FormatEx(online, sizeof(online), "Offline: %s", name);
+			}
+		}
+		
+		//FormatEx(buff, sizeof(buff), "%s-%s" auth);
+		menu.AddItem(auth, online);
+		//menu.AddItem(auth, online);
+    }
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+// Работаю тут. Handle:BuildVirerMenu(client)
+public int MyJobMenu_Select(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+			char userid[32]; //buffer[8][32];
+			menu.GetItem(option, userid, sizeof(userid));
+			int auth = Client_FindBySteamId(userid);
+			
+			if (auth != -1){
+				menu = new Menu(MyJobMenu_Select2);
+				menu.SetTitle("[RP] Info player");
+				char text[100], JobName[64], RankName[64], steam[32], name[MAX_NAME_LENGTH], buffer[32];
+				Client_SteamID(auth, steam, sizeof(steam));
+				GetName(auth, JobName, sizeof(JobName), RankName, sizeof(RankName));
+				Client_GetName(auth, name, sizeof(name));
+				EscapeString(g_db, name, buffer, sizeof(buffer));
+				
+				FormatEx(text, sizeof(text), "Name: %s", buffer);
+				menu.AddItem("", text, ITEMDRAW_DISABLED);
+				
+				FormatEx(text, sizeof(text), "SteamID: %s", steam);
+				menu.AddItem("", text, ITEMDRAW_DISABLED);
+				
+				FormatEx(text, sizeof(text), "Job: %s", JobName);
+				menu.AddItem("", text, ITEMDRAW_DISABLED);
+				
+				FormatEx(text, sizeof(text), "Post: %s", RankName);
+				menu.AddItem("", text, ITEMDRAW_DISABLED);
+				
+				menu.AddItem(userid, "[ Demote ]");
+				menu.AddItem(userid, "[ Change work ]");
+				
+				menu.Display(client, MENU_TIME_FOREVER);
+			} else PrintToChat(client, "Player offline");
+        }
+    }
+}
+
+public int MyJobMenu_Select2(Menu menu, MenuAction action, int client, int option) {
+    switch (action){
+        case MenuAction_End: delete menu;
+        case MenuAction_Select: {
+			char userid[32]; //buffer[8][32];
+			menu.GetItem(option, userid, sizeof(userid));
+			int auth = Client_FindBySteamId(userid);
+			
+			switch (option){
+				case 4: {
+					if (!RP_IsBoss(auth) && !RP_IsUnemployed(auth)){
+						RP_RemoveJob(auth);
+						SetJobKV(auth);
+						DB_SaveClientInfo(g_db, auth);		// save player_info		[job,rank,money,bank]
+						PrintToChat(auth, "Вас выгнали");
+						PrintToChat(client, "Вы исключили %N", auth);
+					} else PrintToChat(client, "Denied");
+				}
+				
+				case 5: {
+					ShowRanksMenuBoss(client, userid);
+				}
+			}
+        }
+    }
+}
+
+void ShowRanksMenuBoss(int client, const char[] id_)
+{	
+	static Menu menu = null;
+	if (menu == null) {
+		menu = new Menu(Menu_RanksBoss);
+		menu.SetTitle("[RP] Choose rank");
+	}
+
+	menu.RemoveAllItems();
+	menu.AddItem(id_, "", ITEMDRAW_RAWLINE);
+	g_kv.JumpToKey(g_jobid[client]);
+	if (g_kv.GotoFirstSubKey()) {
+		char id[IDSIZE], name[64];
+		do {
+			g_kv.GetSectionName(id, sizeof(id));
+			g_kv.GetString("name", name, sizeof(name), id);
+			menu.AddItem(id, name);
+		} while (g_kv.GotoNextKey());
+		g_kv.Rewind();
+	}
+	else {
+		g_kv.Rewind();
+		ThrowError("Job \"%s\" don't contain ranks", id_);
+	}
+
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Menu_RanksBoss(Menu menu, MenuAction action, int param1, int param2){
+	switch (action) {
+		case MenuAction_Select: {
+			if (IsClientInGame(param2)){
+				if (!RP_IsBoss(param2)){
+					char id[IDSIZE];
+					menu.GetItem(param2, id, sizeof(id));
+					PrintToChat(param1, "Your choose post: %s", id);
+					
+					strcopy(g_rankid[param2], sizeof(g_rankid[]), id);
+					SetJobKV(param2);			// set kv variables
+					DB_SaveClientInfo(g_db, param2);		// save player_info		[job,rank,money,bank]
+					
+					char JobName[64], RankName[64];
+					GetName(param2, JobName, sizeof(JobName), RankName, sizeof(RankName));
+					PrintToChat(param2, "Boss change your post: %s", RankName);
+				} else PrintToChat(param1, "This is boss!");
+			} else PrintToChat(param1, "Player offline");
+		}
+	}
 }
