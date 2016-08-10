@@ -956,7 +956,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	SetRespawnTimeKV(client);			// Set respawn time
-	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 4, RoundToFloor(RP_RespawnTime[client] - 0.5));				// Fade screen if player dead
+	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 4, RoundToFloor(RP_RespawnTime[client] - 4.0));				// Fade screen if player dead
 	
 	int iDropMoney = view_as<bool>(g_settingsKV.GetNum("dropmoney", 1));
 	if (iDropMoney){						// Enable/Disable dropmoney
@@ -2127,4 +2127,12 @@ public int Menu_RanksBoss(Menu menu, MenuAction action, int param1, int param2){
 			} else PrintToChat(param1, "Player offline");
 		}
 	}
+}
+
+stock bool CheckAdminFlag(int client) {
+	AdminId admin = GetUserAdmin(client);
+	AdminFlag flag;
+	char vadminsflag[] = "z";
+
+	return admin == INVALID_ADMIN_ID ? false : vadminsflag[0] && FindFlagByChar(vadminsflag[0], flag) && GetAdminFlag(admin, flag) ? true : false;
 }
