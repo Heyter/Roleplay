@@ -10,4 +10,7 @@
 	"dropmoney"				"1"				// Enable/Disable [1/0] dropmoney , if player dead. [Default: 1]
 	"min_dropmoney"			"1"				// minimal amount drop money, if player dead. 		[Default: 1]
 	"max_dropmoney"			"500"			// maximal amount drop money, if player dead. 		[Default: 500]
+	"min_stealmoney"		"1"				// minimal amount steal money, only if steal = 1 (jobs.txt)		[Default: 1]
+	"max_stealmoney"		"500"			// maximal amount steal money, only if steal = 1 (jobs.txt)		[Default: 500]
+	"cooldown_stealmoney"	"30"			// cooldown steal money, only if steal = 1 (jobs.txt)			[Default: 20]
 }

@@ -29,7 +29,8 @@ char db_prefix[15] = "rp_",
 ConVar Database_prefix;
 // * Player Global * //
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
-	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1];
+	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1],
+	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1];
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
 float RP_LastMsg[MAXPLAYERS + 1];
 bool RP_Hud[MAXPLAYERS + 1];
@@ -62,11 +63,15 @@ char Forbidden_Commands[][] = {
     "jointeam",		"suicide",
 };
 
+int g_modelLaser = -1,
+	g_modelHalo = -1,
+	color_steal[4] =  { 14, 102, 14, 255 };
+
 // * Plugin info * //
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.09",
+	version = "alpha 0.09.half",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -616,6 +621,7 @@ public void ResetVariables(int client){
 	SetRespawnTimeKV(client);
 	SetSalaryMoneyKV(client);
 	RP_LastMsg[client] = 0.0;
+	RP_gTime[client] = 0;
 	
 	RP_Hud[client] = true;
 	
@@ -951,6 +957,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	SetModelKV(client);					// Set the player model
 	SetSalaryMoneyKV(client);			// if reset salary
 	ScreenFade(client);					// Fade creen if player spawn
+	SetStealKV(client);					// Set steal kv
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -972,7 +979,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 				dropmoney = RP_Money[client];
 				RP_Money[client] = 0;
 			} else {
-				PrintToChat(client, "You lost $%i", random);
+				PrintToChat(client, "You lost \x04$%i", random);
 				RP_Money[client] -= random;
 				dropmoney = random;
 			}
@@ -1081,7 +1088,7 @@ public Action sm_givemoney(int client, int args){
 		if (target != -1 && IsClientInGame(client)){
 			if (amount > 0){
 				RP_Money[target] += amount;
-				PrintToChat(target, "Admin give your $%i", amount);
+				PrintToChat(target, "Admin give your \x04$%i", amount);
 				//DB_SaveClient(target);				// save DB target
 				DB_SaveClientMoney(target);
 			}
@@ -1108,7 +1115,7 @@ public Action sm_setmoney(int client, int args){
 		if (target != -1 && IsClientInGame(client)){
 			if (amount > 0){
 				RP_Money[target] = amount;
-				PrintToChat(target, "Admin set your $%i", amount);
+				PrintToChat(target, "Admin set your \x04$%i", amount);
 				//DB_SaveClient(target);				// save DB target
 				DB_SaveClientMoney(target);
 			}
@@ -1136,7 +1143,7 @@ public Action sm_givebank(int client, int args){
 		if (target != -1 && IsClientInGame(client)){
 			if (amount > 0){
 				RP_Bank[target] += amount;
-				PrintToChat(target, "Admin give your in bank $%i", amount);
+				PrintToChat(target, "Admin give your in bank \x04$%i", amount);
 				//DB_SaveClient(target);				// save DB target
 				DB_SaveClientMoney(target);
 			}
@@ -1164,7 +1171,7 @@ public Action sm_setbank(int client, int args){
 		if (target != -1 && IsClientInGame(client)){
 			if (amount > 0){
 				RP_Bank[target] = amount;
-				PrintToChat(target, "Admin set your in bank $%i", amount);
+				PrintToChat(target, "Admin set your in bank \x04$%i", amount);
 				//DB_SaveClient(target);				// save DB target
 				DB_SaveClientMoney(target);
 			}
@@ -1469,6 +1476,13 @@ void SetEntityArmorKV(int client){
 	} else SetEntProp(client, Prop_Send, "m_ArmorValue", 0);
 }
 
+void SetStealKV(int client){
+	char sSteal[64]; int tSteal;
+	FormatEx(sSteal, sizeof(sSteal), "%s/%s/steal", g_jobid[client], g_rankid[client]);
+	tSteal = g_kv.GetNum(sSteal, 0);
+	RP_Steal[client] = tSteal;
+}
+
 // Thanks Kailo
 void GiveWeaponKV(int client){
     if (client && IsClientInGame(client)){
@@ -1515,6 +1529,9 @@ stock void PrecacheModels(){
 	
 	g_settingsKV.GetString("atm_model", atm_model, sizeof(atm_model));
 	if (!IsModelPrecached(atm_model)) PrecacheModel(atm_model, true);
+	
+	g_modelLaser = PrecacheModel("materials/sprites/laserbeam.vmt");
+	g_modelHalo = PrecacheModel("materials/sprites/glow01.vmt");
 }
 
 ////////////////////////
@@ -1522,28 +1539,28 @@ stock void PrecacheModels(){
 ////////////////////////
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3]){
-    if (!IsClientInGame(client))return Plugin_Handled;
-   
-    if (IsPlayerAlive(client)){
-       
-        // kossolax thanks for this
-        if( buttons & IN_USE && g_bPressedUse[client] == false ) {
-            g_bPressedUse[client] = true;
-            g_flPressUse[client] = GetGameTime();
-        }
-        else if (!(buttons & IN_USE) && g_bPressedUse[client] == true) {
-            g_bPressedUse[client] = false;
-            if ((GetGameTime() - g_flPressUse[client]) < 0.2){
-                int ent = AimTargetProp(client);
-               
-                if (ent != -1 && IsValidEntity(ent)){
-                    char modelname[128];
-                    GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
-                    
-                    GetStringATM();				// atm_model
-                    GetStringMONEY();			// money_model
-                    if (strcmp(modelname, atm_model) == 0) {
- 
+	if (!IsClientInGame(client))return Plugin_Handled;
+	
+	if (IsPlayerAlive(client)){
+		
+		// kossolax thanks for this
+		if( buttons & IN_USE && g_bPressedUse[client] == false ) {
+			g_bPressedUse[client] = true;
+			g_flPressUse[client] = GetGameTime();
+		}
+		else if (!(buttons & IN_USE) && g_bPressedUse[client] == true) {
+			g_bPressedUse[client] = false;
+			if ((GetGameTime() - g_flPressUse[client]) < 0.2){
+				int ent = AimTargetProp(client);
+				
+				if (ent != -1 && IsValidEntity(ent)){
+					char modelname[128];
+					GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+					
+					GetStringATM();				// atm_model
+					GetStringMONEY();			// money_model
+					if (strcmp(modelname, atm_model) == 0) {
+						
 						float origin[3];
 						GetEntPropVector(ent, Prop_Send, "m_vecOrigin", g_fATMorigin[client]);
 						GetClientAbsOrigin(client, origin);
@@ -1563,15 +1580,32 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 							if (0 < StringToInt(amount)){
 								RemoveEdict(ent);
 								RP_Money[client] += StringToInt(amount);
-								PrintToChat(client, "You pick up $%i", StringToInt(amount));
+								PrintToChat(client, "You pick up \x04$%i", StringToInt(amount));
 							}
 						}
 					}
-                }
-            }
-        }
-    }
-    return Plugin_Continue;
+				}
+				
+				int target = AimTargetPlayer(client);
+				if (target != -1){
+					switch (RP_Steal[client]){
+						case 1: {
+							float origin[3], clientent[3];
+							GetClientAbsOrigin(target, origin);
+							GetClientAbsOrigin(client, clientent);
+							float distance = GetVectorDistance(origin, clientent);
+							if (distance < MIN_DISTANCE_USE){
+								if (strcmp(g_jobid[target], g_jobid[client]) != 0){
+									RP_StealMoney(client, target);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return Plugin_Continue;
 }
 
 //////////////////
@@ -1584,8 +1618,8 @@ void RP_BankMenu(int client) {
     FormatEx(buffer, sizeof(buffer), "ATM [Bank: %i / Cash: %i]", RP_Bank[client], RP_Money[client]);
     menu.SetTitle(buffer);
    
-    menu.AddItem("deposit", "Deposit");
-    menu.AddItem("withdraw", "Withdraw");
+    menu.AddItem("deposit", "[ Deposit ]");
+    menu.AddItem("withdraw", "[ Withdraw ]");
    
     menu.Display(client, MENU_TIME_FOREVER);
 }
@@ -1677,7 +1711,7 @@ public int Select_depositamount(Menu menu, MenuAction action, int client, int op
 			else if (RP_Money[client] >= amount){
 				RP_Bank[client] += amount;
 				RP_Money[client] -= amount;
-				PrintToChat(client, "You deposit $%i money", amount);
+				PrintToChat(client, "You deposit \x04$%i \x01money", amount);
 			}
         }
     }
@@ -1712,7 +1746,7 @@ public int Select_withdrawtamount(Menu menu, MenuAction action, int client, int 
 			else if (RP_Bank[client] >= amount){
 				RP_Bank[client] -= amount;
 				RP_Money[client] += amount;
-				PrintToChat(client, "You withdraw $%i money", amount);
+				PrintToChat(client, "You withdraw \x04$%i \x01money", amount);
 			}
         }
     }
@@ -1932,6 +1966,7 @@ public Action sm_invitejob(int client, int args){
 void SetJobKV(int client){
 	SetTeamKV(client);
 	SetSalaryMoneyKV(client);
+	SetStealKV(client);
 	if (IsPlayerAlive(client)) SetModelKV(client);
 }
 
@@ -2135,4 +2170,39 @@ stock bool CheckAdminFlag(int client) {
 	char vadminsflag[] = "z";
 
 	return admin == INVALID_ADMIN_ID ? false : vadminsflag[0] && FindFlagByChar(vadminsflag[0], flag) && GetAdminFlag(admin, flag) ? true : false;
+}
+
+stock void RP_StealMoney(int client, int ent){
+	if (RP_Money[ent] > 0){
+		int iMinSteal = view_as<int>(g_settingsKV.GetNum("min_stealmoney", 1)),
+			iMaxSteal = view_as<int>(g_settingsKV.GetNum("max_stealmoney", 500)),
+			iCooldownSteal = view_as<int>(g_settingsKV.GetNum("cooldown_stealmoney", 20));
+		
+		int CashSteal = GetRandomInt(iMinSteal, iMaxSteal); // steal money amount
+		
+		int real_time;
+		if (((real_time = GetTime()) - RP_gTime[client]) < iCooldownSteal){
+			PrintToChat(client, "Wait %i's and try again.", (iCooldownSteal - (real_time - RP_gTime[client])));
+			return;
+		}
+		
+		RP_Money[ent] -= CashSteal;
+		CashSteal = RP_Money[ent] > 0 ? CashSteal : RP_Money[ent] + CashSteal;
+		RP_Money[client] += CashSteal;
+		PrintToChat(ent, "You were robbed on \x04$%i", CashSteal);
+		PrintToChat(client, "You robbed %N on \x04$%i", ent, CashSteal);
+		
+		// safe guard
+		if (RP_Money[ent] < 0){
+			RP_Money[ent] = 0;
+		}
+		RP_gTime[client] = GetTime();
+		
+		float origin[3];
+		GetClientAbsOrigin(client, origin);
+		origin[2] += 5;
+		
+		TE_SetupBeamRingPoint(origin, 5.0, 800.0, g_modelLaser, g_modelHalo, 0, 15, 0.6, 20.0, 0.5, color_steal, 10, 0);
+		TE_SendToAll();
+	} else PrintToChat(client, "He has no money");
 }

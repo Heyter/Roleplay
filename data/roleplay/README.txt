@@ -10,6 +10,7 @@
 "tools"						{}		// Do not give weapons
 "rookie"					"name rank"			// This is level on the job			[Newbie]
 "boss"						"name rank"			// This is level on the job			[Main]
+"steal"						"1"					1 - ON; 0 - OFF 		// Steal money, press use [E]
 
 
 // * EXAMPLE JOB * //
@@ -30,6 +31,7 @@
 			"salary" "4"				// salary get money
 			"tools" {}
 			"team" "3"
+			"steal" "1"			// Steal money - ON
 		}
 		
 		"boss"		"C.Boss"
@@ -39,5 +41,6 @@
 			"salary" "5"				// salary get money
 			"tools" { "tool" "weapon_knife"  "tool" "weapon_awp"}
 			"team" "3"
+			"steal" "1"			// Steal money - ON
 		}
 	}

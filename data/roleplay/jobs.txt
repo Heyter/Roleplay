@@ -12,7 +12,7 @@
 			"team" "2"
 			"health" "150"
 			"armor" "110"
-			"model" "models/weapons/t_arms_anarchist.mdl"
+			"model" "models/player/tm_anarchist.mdl"
 			"tools" { "tool" "weapon_knife" }
 		}
 	}
@@ -58,6 +58,7 @@
 			"salary" "5"				// salary get money
 			"tools" { "tool" "weapon_knife"  "tool" "weapon_awp"}
 			"team" "3"
+			"steal" "1"
 		}
 	}
 }
