@@ -1,0 +1,7 @@
+"Settings"
+{
+	"def_drop_model"		"models/props/cs_office/cardboard_box03.mdl"		// Default drop model , if "model" = ""
+	"pickup_sound"			"items/itempickup.wav"								// Pickup sound
+	"max_slots"				"5"													// Max inventory slots								[Default: 20]
+	"slots_enable"			"1"													// Enable/Disable [1/0] slots inventory system 		[Default: 1]
+}

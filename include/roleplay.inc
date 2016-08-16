@@ -45,10 +45,40 @@ native SetClientBank(client, amount);
  */
 native bool RP_RemoveWeapon(client);
 
-public SharedPlugin __pl_core =
+/**
+ * Trace Ray Filter prop
+ *
+ * @param client	Client index
+ * @return			Nothing.
+ */
+native int AimTargetProp(client);
+
+/**
+ * Trace Ray Filter player
+ *
+ * @param client	Client index
+ * @return			Nothing.
+ */
+native int AimTargetPlayer(client);
+
+/**
+ * Started DB roleplay
+ *
+ * @return			false/true
+ */
+native bool RP_IsStartedDB();
+
+/**
+ * Global start timer
+ *
+ * @noreturn
+ */
+forward Action RP_StartGlobalTimer();
+
+public SharedPlugin __pl_roleplay =
 {
-    name = "core",
-    file = "core.smx",
+    name = "roleplay",
+    file = "sm_roleplay.smx",
 #if defined REQUIRE_PLUGIN
     required = 1,
 #else
@@ -57,12 +87,15 @@ public SharedPlugin __pl_core =
 };
 
 #if !defined REQUIRE_PLUGIN
-public void __pl_core_SetNTVOptional()
+public void __pl_roleplay_SetNTVOptional()
 {
     MarkNativeAsOptional("GetClientMoney");
     MarkNativeAsOptional("SetClientMoney");
     MarkNativeAsOptional("GetClientBank");
     MarkNativeAsOptional("SetClientBank");
     MarkNativeAsOptional("RP_RemoveWeapon");
+	MarkNativeAsOptional("AimTargetProp");
+	MarkNativeAsOptional("AimTargetPlayer");
+	MarkNativeAsOptional("RP_IsStartedDB");
 }
 #endif

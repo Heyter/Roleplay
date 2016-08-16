@@ -1,0 +1,83 @@
+"Items"
+{
+	"Mario"
+	{
+		"price"		"200"
+		"enabled"	"0"
+		"category" 	"0"
+		"entity"	"weapon_deagle"
+		"type"		"weapon"
+		"slots"		"1"			// If slots system enable
+	}
+	
+	"Glock"
+	{
+		"price"		"50"
+		"category" 	"0"
+		"entity"	"weapon_glock"
+		"type"		"weapon"
+		"slots"		"1"
+	}
+	
+	"p250"
+	{
+		"price"		"50"
+		"category" 	"0"
+		"entity"	"weapon_p250"
+		"type"		"weapon"
+		"slots"		"1"
+	}
+	
+	"Healthkit (25)"
+	{
+		"price"		"150"
+		"category" 	"1"
+		"entity"	"prop_physics_override"
+		"type"		"health"
+		"model"		"models/weapons/w_eq_healthshot_dropped.mdl"
+		"slots"		"1"
+		"health_amount" 	"25"			// Plus 25 HP
+	}
+	
+	"Healthkit (50)"
+	{
+		"price"		"200"
+		"category" 	"1"
+		"entity"	"prop_physics_override"
+		"type"		"health"
+		"model"		"models/weapons/w_eq_healthshot_dropped.mdl"
+		"slots"		"1"
+		"health_amount" 	"50"
+	}
+	
+	"Healthkit (75)"
+	{
+		"price"		"250"
+		"category" 	"1"
+		"entity"	"prop_physics_override"
+		"type"		"health"
+		"model"		"models/weapons/w_eq_healthshot_dropped.mdl"
+		"slots"		"1"
+		"health_amount" 	"75"
+	}
+	
+	"Healthkit (100)"
+	{
+		"price"		"250"
+		"category" 	"1"
+		"entity"	"prop_physics_override"
+		"type"		"health"
+		"model"		"models/weapons/w_eq_healthshot_dropped.mdl"
+		"slots"		"1"
+		"health_amount" 	"100"
+	}
+	
+	"Usp-S"
+	{
+		"price"		"50"
+		"category" 	"0"
+		"entity"	"weapon_usp_silencer"
+		"type"		"weapon"
+		"slots"		"1"
+	}
+}

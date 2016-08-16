@@ -1,0 +1,12 @@
+"Categories"
+{
+	"0"
+	{
+		"name"		"Pistols"
+	}
+	
+	"1"
+	{
+		"name"		"Items"
+	}
+}

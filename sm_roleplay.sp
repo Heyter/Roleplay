@@ -66,6 +66,9 @@ char Forbidden_Commands[][] = {
 int g_modelLaser = -1,
 	g_modelHalo = -1,
 	color_steal[4] =  { 14, 102, 14, 255 };
+	
+// * Forwards * //
+Handle g_hEverySecondTimer = null;
 
 // * Plugin info * //
 public Plugin info = {
@@ -80,6 +83,7 @@ public void OnPluginStart(){
 	DB_PreConnect();
 	
 	RegCvars();
+	RegForwards();
 	
 	for (int i = 0; i < sizeof(Forbidden_Commands); i++){
 		AddCommandListener(ForbiddenCommands, Forbidden_Commands[i]);
@@ -128,6 +132,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("GetClientBank", NativeGetClientBank);
 	CreateNative("SetClientBank", NativeSetClientBank);
 	CreateNative("RP_RemoveWeapon", Native_RP_RemoveWeapon);
+	CreateNative("AimTargetProp", Native_AimTargetProp);
+	CreateNative("AimTargetPlayer", Native_AimTargetPlayer);
+	CreateNative("RP_IsStartedDB", Native_RP_IsStartedDB);
 	
 	PrintToServer("[RP] Natives Loaded");
 	return APLRes_Success;
@@ -160,6 +167,18 @@ public int Native_RP_RemoveWeapon(Handle plugin, int numParams){
     return RemoveWeapon(GetNativeCell(1));
 }
 
+public int Native_AimTargetProp(Handle plugin, int numParams){
+    return AimTargetProp(GetNativeCell(1));
+}
+
+public int Native_AimTargetPlayer(Handle plugin, int numParams){
+    return AimTargetPlayer(GetNativeCell(1));
+}
+
+public int Native_RP_IsStartedDB(Handle plugin, int numParams){
+    return RP_IsStarted();
+}
+
 public void OnClientPutInServer(int client) {
 	if (!RP_IsStarted()) return;
 	
@@ -169,7 +188,6 @@ public void OnClientPutInServer(int client) {
 	SDKHookEx(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	DB_OnClientPutInServer(client);
 }
-
 
 public Action Timer_1(Handle timer, any client)
 {
@@ -994,6 +1012,10 @@ void RegCvars(){
 	Database_prefix.AddChangeHook(CvarChange);
 }
 
+void RegForwards(){
+	g_hEverySecondTimer = CreateGlobalForward("RP_StartGlobalTimer", ET_Ignore);
+}
+
 public Action Cmd_ReloadJobs(int client, int args)
 {
 	delete g_kv;
@@ -1370,6 +1392,8 @@ public Action OnEverySecond(Handle timer) {
 		}
 		Timer_Salary();
 	}
+	Call_StartForward(g_hEverySecondTimer);
+	Call_Finish();
 }
 
 stock bool RespawnClient(int client){
@@ -2193,9 +2217,7 @@ stock void RP_StealMoney(int client, int ent){
 		PrintToChat(client, "You robbed %N on \x04$%i", ent, CashSteal);
 		
 		// safe guard
-		if (RP_Money[ent] < 0){
-			RP_Money[ent] = 0;
-		}
+		if (RP_Money[ent] < 0) RP_Money[ent] = 0;
 		RP_gTime[client] = GetTime();
 		
 		float origin[3];
