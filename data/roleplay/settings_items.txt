@@ -2,6 +2,10 @@
 {
 	"def_drop_model"		"models/props/cs_office/cardboard_box03.mdl"		// Default drop model , if "model" = ""
 	"pickup_sound"			"items/itempickup.wav"								// Pickup sound
-	"max_slots"				"5"													// Max inventory slots								[Default: 20]
-	"slots_enable"			"1"													// Enable/Disable [1/0] slots inventory system 		[Default: 1]
+	"max_slots"				"5"													// Max inventory slots											[Default: 20]
+	"slots_enable"			"1"													// Enable/Disable [1/0] slots inventory system 					[Default: 1]
+	"max_printers"			"10"												// max spawn printers on player									[Default: 1]
+	"min_money_destroy"		"200"												// min money for destroy printer								[Default: 1]
+	"max_money_destroy"		"500"												// max money for destroy printer								[Default: 200]
+	"police_printer"		"1"													// Enable/Disable [1/0] spawn printer for police = CT team		[Default: 0]
 }

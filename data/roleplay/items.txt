@@ -80,4 +80,17 @@
 		"type"		"weapon"
 		"slots"		"1"
 	}
+	
+	"Printer (bronze)"
+	{
+		"price"				"1"
+		"category" 			"1"
+		"entity"			"prop_physics_override"
+		"type"				"printer"
+		"model"				"models/props_interiors/vcr_new.mdl"
+		"slots"				"2"
+		"print_time"		"10"
+		"print_money_min"	"10"
+		"print_money_max"	"20"
+	}
 }
