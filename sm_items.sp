@@ -4,8 +4,8 @@
 #pragma newdecls required
 #define MAXITEMS 			500
 #define MAXCATEGORIES		100
-#define MIN_DISTANCE_USE 	100
 #define MAXENTS				4000
+#define MIN_DISTANCE_USE 	100
 #define RP_ITEMS_PREFIX "\x03[RP Items]"
 KeyValues itembuykv, itemcatkv, g_itemsKV;
 
@@ -18,12 +18,10 @@ int item_price[MAXITEMS], item_quantity = 0,
 	selected_item[MAXPLAYERS + 1], drop_amount[MAXENTS][MAXITEMS],
 	slots[MAXPLAYERS + 1], item_slots[MAXITEMS], iMaxSlots,
 	item_health_amount[MAXITEMS], item_enabled[MAXITEMS],
-	printer_amount[MAXPLAYERS + 1], printer_owner[2048],
-	item_print_time[MAXITEMS], printer_money[MAXPLAYERS + 1],
-	item_print_max[MAXITEMS], item_print_min[MAXITEMS], printer_time[MAXPLAYERS + 1],
-	printer_ent[MAXPLAYERS + 1], iMaxPrinter, iMaxDestroy, iMinDestroy;
+	item_print_time[MAXITEMS], item_print_max[MAXITEMS], 
+	item_print_min[MAXITEMS], iMaxPrinter, iMoneyDestroy;
 	
-bool g_bPressedUse[MAXPLAYERS + 1], iSlotsEnable, iPrinterPolice;
+bool g_bPressedUse[MAXPLAYERS + 1], iSlotsEnable;
 float g_flPressUse[MAXPLAYERS + 1];
 
 Database g_db;
@@ -33,11 +31,17 @@ char Logs[256] = "addons/sourcemod/logs/rp_items.log";
 int g_modelLaser = -1,
 	g_modelHalo = -1,
 	color_steal[4] =  { 14, 102, 14, 255 };
+	
+// * printer - item * //
+int PrinterTime[MAXPLAYERS + 1][MAXITEMS],
+	PrinterEnt[MAXPLAYERS + 1][MAXITEMS],
+	Printed[MAXPLAYERS + 1][MAXITEMS],
+	printer_amount[MAXPLAYERS + 1];
 
 public Plugin myinfo = {
 	author = "Hikka",
 	name = "[RP:Module] items",
-	version = "0.01",
+	version = "0.02",
 	description = "inventory for roleplay",
 	url = "https://github.com/Heyter/Roleplay",
 };
@@ -68,9 +72,7 @@ public void OnClientPutInServer(int client){
 	g_bPressedUse[client] = false;
 	g_flPressUse[client] = -1.0;
 	slots[client] = 0;
-	printer_amount[client] = 0;
-	printer_money[client] = 0;
-	printer_ent[client] = 0;
+	printer_player(client);
 	
 	DB_OnClientPutInServer(client);
 }
@@ -188,7 +190,6 @@ public int Menu_Use(Menu menu, MenuAction action, int client, int option){
 			if (!IsPlayerAlive(client)) selected_item[client] = -1;
 			GetEnableSlots();
 			GetMaxPrinter();
-			GetEnablePolicePrinter();
 			
 			char info[32];
 			menu.GetItem(option, info, sizeof(info));
@@ -241,13 +242,13 @@ public int Menu_Use(Menu menu, MenuAction action, int client, int option){
 						
 						else if (strcmp(item_type[index], "printer") == 0){
 							if (printer_amount[client] < iMaxPrinter){
-								if (iPrinterPolice) {
-									if (GetClientTeam(client) > 2) {
+								switch (GetClientTeam(client)){
+									case 3: {
 										PrintToChat(client, "%s You can't own contraband while working for the Government", RP_ITEMS_PREFIX);
 										return;
 									}
 								}
-								Plant_Printer(client, index);
+								plant_printer(client, index);
 							} else PrintToChat(client, "%s You have max printers [\x04%i / %i]", RP_ITEMS_PREFIX, printer_amount[client], iMaxPrinter);
 						}
 							
@@ -569,7 +570,7 @@ public void LoadCategories()
 }
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3]){
-	if (!IsClientInGame(client))return Plugin_Handled;
+	if (!IsClientInGame(client)) return Plugin_Handled;
 	
 	if (IsPlayerAlive(client)){
 		
@@ -591,6 +592,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 					GetPickUpSound();				// pickup_sound
 					GetMaxSlots();					// max_slots
 					GetEnableSlots();				// Enable system slots
+					GetMoneyDestroy();				// min/max money for destroy printer
 					
 					for (int X = 0; X < item_quantity; X++){
 						if (strcmp(modelname, def_dropmodel) == 0 || strcmp(modelname, item_model[X]) == 0){
@@ -613,17 +615,38 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 								}
 							}
 						}
-						
-						if (strcmp(item_type[X], "printer") == 0 && printer_name[client]) {
-							float origin[3], clientent[3];
-							GetEntPropVector(ent, Prop_Send, "m_vecOrigin", origin);
-							GetClientAbsOrigin(client, clientent);
-							float distance = GetVectorDistance(origin, clientent);
-							if (distance < MIN_DISTANCE_USE && printer_money[client] != 0){
-								SetClientMoney(client, GetClientMoney(client) + printer_money[client]);
-								PrintToChat(client, "You pick up \x04$%i", printer_money[client]);
-								printer_money[client] = 0;
-								PrintToServer("Pick up printer");
+					}
+					for (int i = 1; i <= MaxClients; i++){
+						for (int X = 1; X < MAXITEMS; X++){
+							if (PrinterEnt[i][X] == ent){
+								float origin[3], clientent[3];
+								GetEntPropVector(ent, Prop_Send, "m_vecOrigin", origin);
+								GetClientAbsOrigin(client, clientent);
+								float distance = GetVectorDistance(origin, clientent);
+								if (distance <= MIN_DISTANCE_USE){
+									switch (GetClientTeam(client)){
+										case 3: {
+											remove_printer(i, X);
+											int random = GetRandomInt(1, iMoneyDestroy);
+											SetClientMoney(client, GetClientMoney(client) + random);
+											printer_amount[i]--;
+											PrintToChat(i, "%s A cop \x03%N \x01has just destroyed your Money Printer!", RP_ITEMS_PREFIX, client);
+											PrintToChat(client, "%s You have just destroyed a Money Printer for \x04$%i!", RP_ITEMS_PREFIX, random);
+										}
+									}
+									
+									if (Printed[i][X] != 0){
+										int collect = Printed[i][X];
+										Printed[i][X] = 0;
+										SetClientMoney(client, GetClientMoney(client) + collect);
+										
+										if (client != i){
+											PrintToChat(i, "%s %N has stolen Money from your Printer!", RP_ITEMS_PREFIX, client);
+											PrintToChat(client, "%s You have Stolen $%i from this printer!", RP_ITEMS_PREFIX, collect);
+										}
+										else PrintToChat(client, "%s You have collected $%i from your Printer!", RP_ITEMS_PREFIX, collect);	
+									}
+								}
 							}
 						}
 					}
@@ -653,6 +676,8 @@ void LoadItemSettings(){
 			GetPickUpSound();
 			GetMaxSlots();
 			GetEnableSlots();
+			GetMaxPrinter();
+			GetMoneyDestroy();
 		} while (g_itemsKV.GotoNextKey());
 	}
 }
@@ -677,16 +702,8 @@ void GetMaxPrinter(){
 	iMaxPrinter = view_as<int>(g_itemsKV.GetNum("max_printers", 1));
 }
 
-void GetMaxDestroy(){
-	iMaxDestroy = view_as<int>(g_itemsKV.GetNum("max_money_destroy", 200));
-}
-
-void GetMinDestroy(){
-	iMinDestroy = view_as<int>(g_itemsKV.GetNum("min_money_destroy", 1));
-}
-
-void GetEnablePolicePrinter(){
-	iPrinterPolice = view_as<bool>(g_itemsKV.GetNum("police_printer", 1));
+void GetMoneyDestroy(){
+	iMoneyDestroy = view_as<int>(g_itemsKV.GetNum("max_money_destroy", 200));
 }
 
 public void OnMapStart(){
@@ -1033,8 +1050,7 @@ void RP_SaveItem(int client, char[] itemname, int amount, DBPriority prio = DBPr
 public void OnClientDisconnect(int client){
 	if (!RP_IsStarted()) return;
 	
-	char auth[32]; GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth));
-	Remove_Printers(client, auth);
+	printer_player(client);
 
 	DB_SaveClient(client);
 }
@@ -1047,8 +1063,6 @@ public Action sm_mystats(int client, int args){
 		for (int X = 0; X < item_quantity; X++){
 			PrintToChat(client, "Item Name: %s [%i]", item_name[X], Item[client][X]);
 		}
-		PrintToChat(client, "Printer money: %i / time: %i", printer_money[client], printer_time[client]);
-		PrintToChat(client, "Printer amount: %i", printer_amount[client]);
 	}
 	return Plugin_Handled;
 }
@@ -1060,132 +1074,59 @@ public Action RP_StartGlobalTimer(){
 	if (RP_IsStartedDB()) {
 		for (int i = 1; i <= MaxClients; i++) {
 			if (IsValidPlayer(i) && GetClientTeam(i) > 1) {
-				if (printer_amount[i] != 0) Printer_Income(i);
+				money_printer(i);
 				GetInfoProp(i);
 			}
 		}
 	}
 }
 
-stock bool Printer_Income(int client){
-	if (printer_time[client] > 0) {
-		printer_time[client]--;
+stock void money_printer_beam(int client){
+	GetDefaultModelDrop();
+	for (int X = 1; X < MAXITEMS; X++){
+		if (PrinterEnt[client][X] > 0 && IsValidEdict(PrinterEnt[client][X]) && IsValidEntity(PrinterEnt[client][X])){
+			float ply_origin[3], printer_origin[3];
+			GetClientAbsOrigin(client, ply_origin);
+			ply_origin[2] += 40.0;
+			char modelname[128];
+			GetEntPropString(PrinterEnt[client][X], Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+			GetEntPropVector(PrinterEnt[client][X], Prop_Data, "m_vecOrigin", printer_origin);
+			float distance = GetVectorDistance(ply_origin, printer_origin);
+			//if (strcmp(item_type[X], "printer") == 0){
+			switch (PrinterTime[client][X]){
+				case 0: {
+					if (distance <= 800){
+						TE_SetupBeamRingPoint(printer_origin, 1.0, 30.0, g_modelLaser, g_modelHalo, 0, 10, 1.0, 5.0, 0.5, color_steal, 10, 0);
+						TE_SendToClient(client);
+					}
+				}
+			}
+			//}
+		}
 	}
-	else if (printer_time[client] == 0) {
-		/*if (IsValidPlayer(client)){
-			printer_money[client] += GetRandomInt(1, 5);
-			printer_time[client] = 10;
-		}*/
-		for (int X = 0; X < item_quantity; X++){
-			if (printer_ent[client] != 0 && IsValidEdict(printer_ent[client] && IsValidEntity(printer_ent[client]))){
-				float print_origin[3], client_origin[3];
-				GetClientAbsOrigin(client, client_origin);
-				client_origin[2] += 40.0;
-				GetEntPropVector(printer_ent[client], Prop_Data, "m_vecOrigin", print_origin);
-				float distance = GetVectorDistance(client_origin, print_origin);
-				if (strcmp(item_type[X], "printer") == 0 && distance <= 500) {
-					TE_SetupBeamRingPoint(print_origin, 1.0, 150.0, g_modelLaser, g_modelHalo, 0, 10, 1.0, 5.0, 0.5, color_steal, 10, 0);
-					TE_SendToAll();
-					int random = GetRandomInt(item_print_min[X], item_print_max[X]), print = (random *= printer_amount[client]);
-					printer_money[client] += print;
-					printer_time[client] = item_print_time[X];
+}
+
+stock void money_printer(int Client){
+	GetDefaultModelDrop();
+	for (int X = 1; X < MAXITEMS; X++){
+		if (PrinterEnt[Client][X] > 0 && IsValidEdict(PrinterEnt[Client][X]) && IsValidEntity(PrinterEnt[Client][X])){
+			if (PrinterTime[Client][X] > 0){
+				PrinterTime[Client][X]--;
+			}
+			switch (PrinterTime[Client][X]){
+				case 0: {
+					char ModelName[128];
+					GetEntPropString(PrinterEnt[Client][X], Prop_Data, "m_ModelName", ModelName, 128);
+					//if (strcmp(item_type[X], "printer") == 0){
+					money_printer_beam(Client);
+					int Random = GetRandomInt(item_print_min[X], item_print_max[X]);
+					Printed[Client][X] += Random;
+					PrinterTime[Client][X] = item_print_time[X];
+					//}
 				}
 			}
 		}
 	}
-}
-	
-
-stock void Plant_Printer(int client, int index){
-	
-	float EyeAng[3], ForwardVec[3];
-	GetClientEyeAngles(client, EyeAng);
-	GetAngleVectors(EyeAng, ForwardVec, NULL_VECTOR, NULL_VECTOR);
-	ScaleVector(ForwardVec, 50.0);
-	ForwardVec[2] = 0.0;
-	
-	float EyePos[3], AbsAngle[3];
-	GetClientEyePosition(client, EyePos);
-	GetClientAbsAngles(client, AbsAngle);
-	
-	float SpawnAngles[3], SpawnOrigin[3];
-	SpawnAngles[1] = EyeAng[1];
-	AddVectors(EyePos, ForwardVec, SpawnOrigin);
-
-	int prop;
-	if ((prop = CreateEntityByName(item_entity[index])) != -1){
-		if (!IsModelPrecached(item_model[index])) PrecacheModel(item_model[index]);
-			
-		char printer_name[32]; float VecAngles[3], VecOrigin[3], VecDirection[3];
-		FormatEx(printer_name, sizeof(printer_name), "%N", client);
-		DispatchKeyValue(prop, "targetname", printer_name);
-		DispatchKeyValue(prop, "model", item_model[index]);
-		DispatchKeyValueFloat (prop, "MaxPitch", 360.00);
-		DispatchKeyValueFloat (prop, "MinPitch", -360.00);
-		DispatchKeyValueFloat (prop, "MaxYaw", 90.00);
-		DispatchSpawn(prop);
-		
-		GetClientEyeAngles(client, VecAngles);
-		GetAngleVectors(VecAngles, VecDirection, NULL_VECTOR, NULL_VECTOR);
-		VecOrigin[0] += VecDirection[0] * 32;
-		VecOrigin[1] += VecDirection[1] * 32;
-		VecOrigin[2] += VecDirection[2] * 1;
-		VecAngles[0] = 0.0;
-		VecAngles[1] += 180.0;
-		VecAngles[2] = 0.0;
-		DispatchKeyValueVector(prop, "Angles", VecAngles);
-		DispatchKeyValue (prop, "health", "100");
-		DispatchKeyValue (prop, "ExplodeRadius", "16");
-		DispatchKeyValue (prop, "ExplodeDamage", "10");
-		DispatchKeyValue (prop, "Damagetype", "1");
-		DispatchKeyValue (prop, "PerformanceMode", "0");
-		DispatchSpawn(prop);
-		
-		SetEntProp(prop, Prop_Send, "m_usSolidFlags", 8);
-		SetEntProp(prop, Prop_Send, "m_CollisionGroup", 11);
-		
-		TeleportEntity(prop, SpawnOrigin, SpawnAngles, NULL_VECTOR);
-		
-		PrintToServer("%s %N spawned a %s.", RP_ITEMS_PREFIX, client, item_name[index]);
-		
-		Item[client][index]--;
-		GetEnableSlots();
-		if (iSlotsEnable) slots[client] -= item_slots[index];
-		//printer_money[client] = 0;
-		printer_amount[client]++;
-		printer_owner[prop] = client;
-		printer_ent[client] = prop;
-		if (printer_amount[client] < 1){
-			for (int X = 0; X < item_quantity; X++){
-				printer_time[client] = item_print_time[X];
-			}
-		}
-		PrintToChat(client, "%s You have %i %s left.", RP_ITEMS_PREFIX, Item[client][index], item_name[index]);
-		PrintToChat(client, "%s You spawned a \x04%s \x01[\x04%i / %i\x01]", RP_ITEMS_PREFIX, item_name[index], printer_amount[client], iMaxPrinter);
-		RP_SaveItem(client, item_name[index], Item[client][index]);
-		selected_item[client] = -1;
-
-		HookSingleEntityOutput(prop, "OnBreak", OnPropPhysBreak);
-	}
-}
-
-public void OnPropPhysBreak(char[] output, int caller, int activator, float delay)
-{
-	int owner = printer_owner[caller];
-
-	if (owner != 0 && IsClientInGame(owner)){
-		printer_amount[owner] = -1;
-	} else printer_amount[owner] = 0;
-	
-	if (IsValidPlayer(activator) && IsPlayerAlive(activator)){
-		GetMaxDestroy(), GetMinDestroy();
-		int random = GetRandomInt(iMinDestroy, iMaxDestroy),
-			money = printer_money[owner] + random;
-		SetClientMoney(activator, GetClientMoney(activator) + money);
-		PrintToChat(activator, "%s You broke a Money Printer and found $%i inside.", RP_ITEMS_PREFIX, money);
-	}
-	printer_owner[caller] = 0;
-	return;
 }
 
 stock bool IsValidPlayer(int client){
@@ -1196,37 +1137,79 @@ stock bool IsValidPlayer(int client){
 	else return false;
 }
 
-stock void Remove_Printers(int client, char[] auth){
-	if (printer_amount[client] != 0) {
-		int index = 0; char printer_name[128];
-		do
-		{
-			GetEntPropString(index, Prop_Data, "m_iName", printer_name, sizeof(printer_name));
-			if (strcmp(auth, printer_name) == 0) RemoveEdict(index);
-		} while ((index = FindEntityByClassname2(index, item_entity[index])) != -1);
-	}
-	printer_amount[client] = 0;
-	printer_ent[client] = 0;
-}
-
-stock int FindEntityByClassname2(int startEnt, char[] classname)
-{
-	/* If startEnt isn't valid shifting it back to the nearest valid one */
-	while (startEnt > -1 && !IsValidEntity(startEnt)) startEnt--;
-	return FindEntityByClassname(startEnt, classname);
-}
-
 stock void GetInfoProp(int client) {
-	int target = AimTargetProp(client);
-	if (target <= 0) return;
-	
-	if (IsValidEntity(target)) {
-		for (int X = 0; X < item_quantity; X++) if (strcmp(item_type[X], "printer") == 0){
-			char printer_name[128];
-			GetEntPropString(target, Prop_Data, "m_iName", printer_name, sizeof(printer_name));
-			for (int i = 1; i <= MaxClients; i++){
-				if (IsClientInGame(i) && printer_name[i]) PrintHintText(client, "Printer: %s\nMoney: %i", printer_name, printer_money[i]);
+	int ent = AimTargetProp(client);
+	if (ent != 0 && IsValidEntity(ent)){
+		for (int X = 1; X < MAXITEMS; X++){
+			if (PrinterEnt[client][X] == ent){
+				if (PrinterTime[client][X] != 0){
+					PrintHintText(client, "Printers:\nPrinting Ends in %i Sec\nPrinted ($%i)", PrinterTime[client][X], Printed[client][X]);
+				} else {
+					PrintHintText(client, "Printers:\nPrinter Money is ready to be collected!\nPrinted ($%i)", Printed[client][X]);
+				}
 			}
 		}
+	}
+}
+
+stock void remove_printer(int client, int index){
+	PrinterTime[client][index] = 0;
+	Printed[client][index] = 0;
+	RemoveEdict(PrinterEnt[client][index]);
+	PrinterEnt[client][index] = -1;
+}
+
+stock void plant_printer(int client, int index){
+	float ClientOrigin[3], EyeAngles[3];
+	GetClientAbsOrigin(client, ClientOrigin);
+	GetClientEyeAngles(client, EyeAngles);
+	for (int Y = 0; Y < MAXITEMS; Y++){
+		if(PrinterEnt[client][Y] == -1){
+			float PrinterOrigin[3];
+			PrinterOrigin[0] = (ClientOrigin[0] + (FloatMul(50.0, Cosine(DegToRad(EyeAngles[1])))));
+			PrinterOrigin[1] = (ClientOrigin[1] + (FloatMul(50.0, Sine(DegToRad(EyeAngles[1])))));
+			PrinterOrigin[2] = (ClientOrigin[2] + 100);
+			
+			Item[client][index]--;
+			GetEnableSlots();
+			if (iSlotsEnable) slots[client] -= item_slots[index];
+			PrinterTime[client][Y] = item_print_time[index];
+			Printed[client][Y] = 0;
+			printer_amount[client]++;
+			PrintToChat(client, "%s You have %i %s left.", RP_ITEMS_PREFIX, Item[client][index], item_name[index]);
+			PrintToChat(client, "%s You spawned a \x04%s \x01[\x04%i / %i\x01]", RP_ITEMS_PREFIX, item_name[index], printer_amount[client], iMaxPrinter);
+			
+			int Ent = CreateEntityByName(item_entity[index]);
+			if (!IsModelPrecached(item_model[index])) PrecacheModel(item_model[index]);
+			DispatchKeyValue(Ent, "solid", "0");
+			DispatchKeyValue(Ent, "model", item_model[index]);
+			DispatchSpawn(Ent);
+			TeleportEntity(Ent, PrinterOrigin, NULL_VECTOR, NULL_VECTOR);
+			PrinterEnt[client][Y] = Ent;
+			SetEntProp(Ent, Prop_Data, "m_takedamage", 0, 1);
+			SetEntProp(Ent, Prop_Send, "m_usSolidFlags", 8);
+			SetEntProp(Ent, Prop_Send, "m_CollisionGroup", 11);
+			RP_SaveItem(client, item_name[index], Item[client][index]);
+			selected_item[client] = -1;
+			break;
+		}
+	}
+}
+
+stock void printer_player(int client){
+	GetDefaultModelDrop();
+	for (int X = 1; X < MAXITEMS; X++){
+		PrinterTime[client][X] = 0;
+		Printed[client][X] = 0;
+		printer_amount[client] = 0;
+		if (PrinterEnt[client][X] != 0 && IsValidEdict(PrinterEnt[client][X])){
+			/*char modelname[128];
+			GetEntPropString(PrinterEnt[client][X], Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+			if (strcmp(item_type[X], "printer") == 0){
+				RemoveEdict(PrinterEnt[client][X]);
+			}*/
+			RemoveEdict(PrinterEnt[client][X]);
+		}
+		PrinterEnt[client][X] = -1;
 	}
 }
