@@ -6,7 +6,7 @@ SM Roleplay Mod
 - Game: CSGO[CSS]
 - Database: sqlite/mysql
 - Language: Multi
-- Recommended plugins: https://forums.alliedmods.net/showthread.php?t=199799
+- Recommended plugins: https://forums.alliedmods.net/showthread.php?t=199799; https://github.com/Franc1sco/DevZones;
 
 --- 
 Features
