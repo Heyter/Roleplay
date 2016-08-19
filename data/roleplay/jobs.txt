@@ -14,6 +14,7 @@
 			"armor" "110"
 			"model" "models/player/tm_anarchist.mdl"
 			"tools" { "tool" "weapon_knife" }
+			"pvp_amount"	"20"
 		}
 	}
 	

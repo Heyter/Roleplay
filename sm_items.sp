@@ -1,6 +1,7 @@
 #pragma semicolon 1
 #include <roleplay>
 #include <sdktools>
+#include <createspawns>
 #pragma newdecls required
 #define MAXITEMS 			500
 #define MAXCATEGORIES		100
@@ -1063,6 +1064,8 @@ public Action sm_mystats(int client, int args){
 		for (int X = 0; X < item_quantity; X++){
 			PrintToChat(client, "Item Name: %s [%i]", item_name[X], Item[client][X]);
 		}
+		RP_TeleportToCell(client);
+		PrintToServer("sm_mystats");
 	}
 	return Plugin_Handled;
 }

@@ -6,16 +6,17 @@
 #pragma newdecls required
 
 // * Fade Defines * //
-#define FFADE_IN               0x0001
-#define FFADE_OUT              0x0002
-#define FFADE_MODULATE         0x0004
-#define FFADE_STAYOUT          0x0008
-#define FFADE_PURGE            0x0010
+#define FFADE_IN               	0x0001
+#define FFADE_OUT              	0x0002
+#define FFADE_MODULATE         	0x0004
+#define FFADE_STAYOUT          	0x0008
+#define FFADE_PURGE            	0x0010
+#define DEATH_COLOR           	{0,0,0,255}
 
-#define DEATH_COLOR           {0,0,0,255}
+#define MIN_DISTANCE_USE		100
+#define IDSIZE 					64
+#define MAX_SPAWNS 				256
 
-#define MIN_DISTANCE_USE 100
-#define IDSIZE 64
 
 // macross
 //#define RemoveJob(%1) SetClientJob(%1, "", ""), CS_SwitchTeam(%1, CS_TEAM_T)
@@ -30,7 +31,8 @@ ConVar Database_prefix;
 // * Player Global * //
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
 	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1],
-	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1];
+	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1], RP_Arrest[MAXPLAYERS + 1],
+	RP_PVP[MAXPLAYERS + 1];
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
 float RP_LastMsg[MAXPLAYERS + 1];
 bool RP_Hud[MAXPLAYERS + 1];
@@ -74,7 +76,7 @@ Handle g_hEverySecondTimer = null;
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.09.half",
+	version = "alpha 0.10",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -640,6 +642,7 @@ public void ResetVariables(int client){
 	SetSalaryMoneyKV(client);
 	RP_LastMsg[client] = 0.0;
 	RP_gTime[client] = 0;
+	RP_PVP[client] = -1;		// после удлить и добавить в БД
 	
 	RP_Hud[client] = true;
 	
@@ -976,12 +979,14 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	SetSalaryMoneyKV(client);			// if reset salary
 	ScreenFade(client);					// Fade creen if player spawn
 	SetStealKV(client);					// Set steal kv
+	SetArrestKV(client);				// Set arrest kv
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int client = GetClientOfUserId(event.GetInt("userid")),
+		attacker = GetClientOfUserId(event.GetInt("attacker"));
 	SetRespawnTimeKV(client);			// Set respawn time
-	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 4, RoundToFloor(RP_RespawnTime[client] - 4.0));				// Fade screen if player dead
+	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 2, RoundToFloor(RP_RespawnTime[client] - 4.0));				// Fade screen if player dead
 	
 	int iDropMoney = view_as<bool>(g_settingsKV.GetNum("dropmoney", 1));
 	if (iDropMoney){						// Enable/Disable dropmoney
@@ -1004,6 +1009,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			Drop_Money(client, dropmoney);
 		}
 	}
+	if (attacker != client) SetPvPKV(client, attacker); 			// если игрок убил игрока, то добавляем ему к RP_PVP[client];
 }
 
 void RegCvars(){
@@ -1387,6 +1393,7 @@ public Action OnEverySecond(Handle timer) {
 					RespawnClient(i);
 				}
 				else if (RP_Hud[i] != false) ShowPanel(i);				// hud menu
+				PVP_Status(i);
 				GetInfoEntity(i);			// Print Hint player id
 			}
 		}
@@ -1422,6 +1429,14 @@ stock bool Timer_Salary(){
 		}
 		GetSalaryTimer();
 		iSalaryEnd = iSalaryTimer;
+	}
+}
+
+stock bool PVP_Status(int client){
+	if (RP_PVP[client] > 0) RP_PVP[client]--;
+	else if (RP_PVP[client] == 0){
+		RP_PVP[client] = -1;
+		PrintToChat(client, "[PVP] You are no longer in PvP");
 	}
 }
 
@@ -1505,6 +1520,28 @@ void SetStealKV(int client){
 	FormatEx(sSteal, sizeof(sSteal), "%s/%s/steal", g_jobid[client], g_rankid[client]);
 	tSteal = g_kv.GetNum(sSteal, 0);
 	RP_Steal[client] = tSteal;
+}
+
+void SetArrestKV(int client){
+	char sArrest[64]; int tArrest;
+	FormatEx(sArrest, sizeof(sArrest), "%s/%s/arrest", g_jobid[client], g_rankid[client]);
+	tArrest = g_kv.GetNum(sArrest, 0);
+	RP_Arrest[client] = tArrest;
+}
+
+void SetPvPKV(int client, int attacker){
+	char sPvP[64]; int tPvP;
+	FormatEx(sPvP, sizeof(sPvP), "%s/%s/pvp_amount", g_jobid[client], g_rankid[client]);
+	tPvP = g_kv.GetNum(sPvP, 0);
+	if (tPvP != 0) {
+		if (RP_PVP[attacker] > 0) {
+			RP_PVP[attacker] += tPvP;
+			PrintToChat(attacker, "[PVP] You got +%is for murder", tPvP);
+		} else {
+			RP_PVP[attacker] = tPvP;
+			PrintToChat(attacker, "[PVP] You got PVP status = %is", tPvP);
+		}
+	}
 }
 
 // Thanks Kailo
@@ -1837,7 +1874,7 @@ stock void GetTargetName(int entity, char[] buf, int len){
 //////////////////
 
 stock void ShowPanel(int client) {
-	char text[100];
+	char text[128];
 
 	Panel panel = new Panel();
 	Format(text, sizeof(text), "[RP] HUD");
@@ -1866,6 +1903,11 @@ stock void ShowPanel(int client) {
 	GetSalaryTimer();
 	Format(text, sizeof(text), "Salary timer: %d", iSalaryEnd);
 	panel.DrawText(text);
+	
+	if (RP_PVP[client] > 0) {
+		Format(text, sizeof(text), "PvP Status: %i", RP_PVP[client]);
+		panel.DrawText(text);
+	}
 
 	panel.CurrentKey = 9;
 	panel.DrawItem("Close");
@@ -1903,28 +1945,18 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	char weapon[32];
 	GetClientWeapon(attacker, weapon, sizeof(weapon));
 
-	if (StrContains(weapon, "knife") != -1)
+	if (strcmp(weapon, "knife") == 0)
 	{
-		//ArrayJob job = new ArrayJob(file_job);
-
-		//bool arresta = view_as<bool>(job.GetById(ParamData_Int, "arrest", attacker.JobId,	attacker.PostId)	== -1 ? job.GetById(ParamData_Int, "arrest", attacker.JobId)	: job.GetById(ParamData_Int, "arrest", attacker.JobId,	attacker.PostId)),
-		//	 arrestv = view_as<bool>(job.GetById(ParamData_Int, "arrest", victim.JobId,		victim.PostId)		== -1 ? job.GetById(ParamData_Int, "arrest", victim.JobId)		: job.GetById(ParamData_Int, "arrest", victim.JobId,	victim.PostId));
-
-		//delete job;
-
-		//if (arresta
-		//&&  !arrestv)
-		//{
-			//PrintToChatAll("\x01\x0B \x04%s\x01 Был арестован и посажен в тюрьму: %N", PREFIX, victim.Index);
-		//}
-		switch (GetClientTeam(attacker)){
-			case 3: {
-				damage = 0.0;
-				return Plugin_Changed;
+		if (RP_Arrest[attacker] != 0){
+			if (RP_PVP[victim] > 0) PrintToChatAll("[RP] Был арестован и посажен в тюрьму: %N", victim);
+			switch (GetClientTeam(attacker)){
+				case 3: {
+					damage = 0.0;
+					return Plugin_Changed;
+				}
 			}
 		}
 	}
-
 	return Plugin_Continue;
 }
 
@@ -2072,7 +2104,6 @@ public void DB_LoadJobs_Select(Database db, DBResultSet results, const char[] er
     menu.Display(client, MENU_TIME_FOREVER);
 }
 
-// Работаю тут. Handle:BuildVirerMenu(client)
 public int MyJobMenu_Select(Menu menu, MenuAction action, int client, int option) {
     switch (action){
         case MenuAction_End: delete menu;
@@ -2227,4 +2258,12 @@ stock void RP_StealMoney(int client, int ent){
 		TE_SetupBeamRingPoint(origin, 5.0, 800.0, g_modelLaser, g_modelHalo, 0, 15, 0.6, 20.0, 0.5, color_steal, 10, 0);
 		TE_SendToAll();
 	} else PrintToChat(client, "He has no money");
+}
+
+stock bool RP_IsMurder(int client){
+	if (RP_PVP[client] > 0) {
+		PrintToChat(client, "You can't use this is");
+		return true;
+	}
+	return false;
 }
