@@ -75,6 +75,7 @@ public Action sm_push(int client, int args){
 				}
 			}
 			RP_gTime[client] = GetTime();
+			PrintToServer("%N pushed %N", client, target);
 		}
 	}
 	return Plugin_Handled;

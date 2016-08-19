@@ -1,7 +1,8 @@
 #pragma semicolon 1
 #include <sdktools>
+#include <createspawns>
 
-#define MAX_SPAWNS 512
+#define MAX_SPAWNS 128
 KeyValues g_kvspawns;
 float g_fSpawns[MAX_SPAWNS][3], NULLZONE[3] = {0.0, 0.0, 0.0};
 int exitjail, jail, spawns;
@@ -23,6 +24,26 @@ public void OnPluginStart(){
 	LoadSpawn(1);	// Load exit jail
 }
 
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max){
+	RegPluginLibrary("createspawns");
+	
+	CreateNative("RP_TeleportToCell", Native_TeleportToCell);
+	CreateNative("RP_TeleportToExitCell", Native_TeleportToExitCell);
+	
+	PrintToServer("[RP Spawns] Natives Loaded");
+	return APLRes_Success;
+}
+
+public int Native_TeleportToCell(Handle plugin, int numParams){
+	TeleportToCell(GetNativeCell(1));
+	return;
+}
+
+public int Native_TeleportToExitCell(Handle plugin, int numParams){
+	TeleportToExitCell(GetNativeCell(1));
+	return;
+}
+
 public Action sm_tp(int client, int args){
 	if (!client || !IsClientInGame(client)){
 		ReplyToCommand(client, "ERROR: You can't use that command while not in game!");
@@ -34,6 +55,20 @@ public Action sm_tp(int client, int args){
 	PrintToChat(client, "Random: %i", random);
 	PrintToChat(client, "Position: %f %f %f", g_fSpawns[random][0], g_fSpawns[random][1], g_fSpawns[random][2]);
 	return Plugin_Handled;
+}
+
+stock int TeleportToExitCell(int client){
+	int random_ex = GetRandomInt(0, exitjail - 1);
+	if (g_fSpawns[random_ex][0] != NULLZONE[0]) {
+		TeleportEntity(client, g_fSpawns[random_ex], NULL_VECTOR, NULL_VECTOR);
+	}
+}
+
+stock int TeleportToCell(int client){
+	int random_j = GetRandomInt(0, jail - 1);
+	if (g_fSpawns[random_j][0] != NULLZONE[0]) {
+		TeleportEntity(client, g_fSpawns[random_j], NULL_VECTOR, NULL_VECTOR);
+	}
 }
 
 public Action sm_spawns(int client, int args){
