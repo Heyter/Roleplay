@@ -38,6 +38,7 @@
 			"salary" "125"				// salary get money
 			"tools" { "tool" "weapon_knife"  "tool" "weapon_usp_silencer"  "tool" "weapon_ak47" }
 			"team" "3"
+			"taser"	"1"
 		}
 	}
 	

@@ -3,6 +3,7 @@
 #include <sdkhooks>
 #include <colors_csgo>
 #include <cstrike>
+#include <devzones>
 #pragma newdecls required
 
 // * Fade Defines * //
@@ -32,7 +33,7 @@ ConVar Database_prefix;
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
 	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1],
 	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1], RP_Arrest[MAXPLAYERS + 1],
-	RP_PVP[MAXPLAYERS + 1];
+	RP_PVP[MAXPLAYERS + 1], RP_TaserKV[MAXPLAYERS + 1];
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
 float RP_LastMsg[MAXPLAYERS + 1];
 bool RP_Hud[MAXPLAYERS + 1];
@@ -72,6 +73,11 @@ int g_modelLaser = -1,
 // * Forwards * //
 Handle g_hEverySecondTimer = null;
 
+// * Taser * //
+int ColorTazer[4] =  { 102, 102, 204, 255 };
+bool RP_TargetTaser[MAXPLAYERS + 1]; 
+int RP_TaserTime[MAXPLAYERS + 1];
+
 // * Plugin info * //
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
@@ -104,6 +110,7 @@ public void OnPluginStart(){
 	RegConsoleCmd("sm_invitejob", sm_invitejob, "Invite to work, only boss");
 	RegConsoleCmd("sm_leavejob", sm_leavejob, "Leave job");
 	RegConsoleCmd("sm_myjob", sm_myjob, "Job menu, only boss");
+	RegConsoleCmd("sm_taser", sm_taser);
 
 	RegAdminCmd("sm_jobs", Cmd_Jobs, ADMFLAG_ROOT, "Set job for player");
 	RegAdminCmd("sm_reloadsettings", sm_ReloadSettings, ADMFLAG_ROOT, "Reload config settings.txt");
@@ -187,6 +194,7 @@ public void OnClientPutInServer(int client) {
 	CreateTimer(1.0, Timer_1, client);
 	
 	ResetVariables(client);
+	SDKHookEx(client, SDKHook_WeaponEquip, OnWeaponEquip);
 	SDKHookEx(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	DB_OnClientPutInServer(client);
 }
@@ -980,13 +988,15 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	ScreenFade(client);					// Fade creen if player spawn
 	SetStealKV(client);					// Set steal kv
 	SetArrestKV(client);				// Set arrest kv
+	TaserSettings(client);				// Reset taser settings
+	SetTaserKV(client);					// Set taser KV
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid")),
 		attacker = GetClientOfUserId(event.GetInt("attacker"));
 	SetRespawnTimeKV(client);			// Set respawn time
-	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 2, RoundToFloor(RP_RespawnTime[client] - 4.0));				// Fade screen if player dead
+	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 2, RoundToFloor(RP_RespawnTime[client] - 1.0));				// Fade screen if player dead
 	
 	int iDropMoney = view_as<bool>(g_settingsKV.GetNum("dropmoney", 1));
 	if (iDropMoney){						// Enable/Disable dropmoney
@@ -1393,8 +1403,9 @@ public Action OnEverySecond(Handle timer) {
 					RespawnClient(i);
 				}
 				else if (RP_Hud[i] != false) ShowPanel(i);				// hud menu
-				PVP_Status(i);
 				GetInfoEntity(i);			// Print Hint player id
+				RP_TaserTimer(i);
+				PVP_Status(i);
 			}
 		}
 		Timer_Salary();
@@ -1542,6 +1553,13 @@ void SetPvPKV(int client, int attacker){
 			PrintToChat(attacker, "[PVP] You got PVP status = %is", tPvP);
 		}
 	}
+}
+
+void SetTaserKV(int client){
+	char sTaser[64]; int tTaser;
+	FormatEx(sTaser, sizeof(sTaser), "%s/%s/taser", g_jobid[client], g_rankid[client]);
+	tTaser = g_kv.GetNum(sTaser, 0);
+	RP_TaserKV[client] = tTaser;
 }
 
 // Thanks Kailo
@@ -1872,7 +1890,7 @@ stock void GetTargetName(int entity, char[] buf, int len){
 //////////////////
 // * Hud menu * //
 //////////////////
-
+char text_hud[128];
 stock void ShowPanel(int client) {
 	char text[128];
 
@@ -1908,6 +1926,13 @@ stock void ShowPanel(int client) {
 		Format(text, sizeof(text), "PvP Status: %i", RP_PVP[client]);
 		panel.DrawText(text);
 	}
+	
+	if (text_hud[0]){
+		panel.DrawText(text_hud);
+	} else {
+		FormatEx(text, sizeof(text), "Zone: street");
+		panel.DrawText(text);
+	}
 
 	panel.CurrentKey = 9;
 	panel.DrawItem("Close");
@@ -1915,6 +1940,15 @@ stock void ShowPanel(int client) {
 	panel.Send(client, inf, 30);
 	delete panel;
 }
+
+public int Zone_OnClientEntry(int client, char[] zone){
+	FormatEx(text_hud, sizeof(text_hud), "Zone: %s", zone);
+}
+
+public int Zone_OnClientLeave(int client, char[] zone){
+	FormatEx(text_hud, sizeof(text_hud), "Zone: street");
+}
+
 public int inf(Menu panel, MenuAction action, int param1, int param2) {
 	switch (action)
 	{
@@ -2261,9 +2295,85 @@ stock void RP_StealMoney(int client, int ent){
 }
 
 stock bool RP_IsMurder(int client){
-	if (RP_PVP[client] > 0) {
+	if (RP_PVP[client] > 0 || RP_TargetTaser[target]) {
 		PrintToChat(client, "You can't use this is");
 		return true;
 	}
 	return false;
+}
+
+public Action sm_taser(int client, int args){
+	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		if (RP_TaserKV[client] != 0) RP_Taser(client);
+	}
+	return Plugin_Handled;
+}
+
+stock void RP_Taser(int client){
+	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		int target = AimTargetPlayer(client);
+		if (target != -1 && strcmp(g_jobid[target], g_jobid[client]) != 0) {
+			if (!RP_TargetTaser[target]) {
+				float origin[3], clientent[3];
+				GetClientAbsOrigin(target, origin);
+				GetClientAbsOrigin(client, clientent);
+				float distance = GetVectorDistance(origin, clientent);
+				int max_distance_taser = view_as<int>(g_settingsKV.GetNum("distance_taser", 500));
+				if (distance <= max_distance_taser){
+					int taser_time = view_as<int>(g_settingsKV.GetNum("taser_time", 20));
+					RP_TargetTaser[target] = true;
+					RP_TaserTime[target] = taser_time;
+					float target_ent[3], attacker_ent[3];
+					GetEntPropVector(target, Prop_Send, "m_vecOrigin", target_ent);
+					GetEntPropVector(client, Prop_Send, "m_vecOrigin", attacker_ent);
+					attacker_ent[2] += 45;
+					target_ent[2] += 45;
+					TE_SetupBeamPoints(attacker_ent, target_ent, g_modelLaser, 0, 1, 0, 1.0, 20.0, 0.0, 2, 5.0, ColorTazer, 3);
+					TE_SendToAll();
+					SetEntityMoveType(target, MOVETYPE_NONE);
+					SetEntProp(target, Prop_Send, "m_fFlags", 66);
+					SetEntityRenderMode(target, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(target, 0, 255, 183, 200);
+					RP_DropWeapons(target);
+					ScreenFade(target, FFADE_OUT, DEATH_COLOR, 1, RoundToFloor(10 - 1.0));
+				}
+			}
+		}
+	}
+}
+
+stock void RP_TaserTimer(int client){
+	if (RP_TaserTime[client] > 0) RP_TaserTime[client]--;
+	switch (RP_TaserTime[client]){
+		case 0: {
+			TaserSettings(client);
+			ScreenFade(client);
+		}
+	}
+}
+
+stock void RP_DropWeapons(int client){
+	int index;
+	for (int i; i <= 4; i++){
+		if ((index = GetPlayerWeaponSlot(client, i)) != -1){
+			if (i != 2) CS_DropWeapon(client, index, true, false);
+		}
+	}
+}
+
+stock void TaserSettings(int client){
+	SetEntityMoveType(client, MOVETYPE_WALK);
+	SetEntProp(client, Prop_Send, "m_fFlags", 0);
+	SetEntityRenderColor(client, 255, 255, 255, 255);
+	RP_TargetTaser[client] = false;
+	RP_TaserTime[client] = -1;
+}
+
+public Action OnWeaponEquip(int client, int weapon) {
+	if (RP_TargetTaser[client] != false) {
+		char sWeapons[32];
+		GetEntityClassname(weapon, sWeapons, sizeof(sWeapons));
+		if (strcmp(sWeapons[7], "knife") != 0) return Plugin_Handled;
+	}
+	return Plugin_Continue;
 }

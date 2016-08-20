@@ -12,6 +12,7 @@
 "boss"						"name rank"			// This is level on the job			[Main]
 "steal"						"1"					1 - ON; 0 - OFF 		// Steal money, press use [E]
 "pvp_amount"				"20"			// If player kill plus for pvp status
+"taser"						"1"				1 - ON; 0 - OFF				// Taser [sm_taser]
 
 
 // * EXAMPLE JOB * //
