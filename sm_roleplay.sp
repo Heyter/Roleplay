@@ -93,7 +93,7 @@ float g_fCuffDist[MAXPLAYERS + 1][3];
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.25",
+	version = "alpha 0.26",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -1682,6 +1682,11 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		else if (!(buttons & IN_USE) && g_bPressedUse[client] == true) {
 			g_bPressedUse[client] = false;
 			if ((GetGameTime() - g_flPressUse[client]) < 0.2){
+				if (RP_IsMurder_Lite(client)) {
+					PrintToChat(client, "You can't use this is");
+					return Plugin_Handled;
+				}
+				
 				int ent = AimTargetProp(client);
 				
 				if (ent != -1 && IsValidEntity(ent)){
@@ -1825,10 +1830,15 @@ public int Select_depositamount(Menu menu, MenuAction action, int client, int op
                 return;
             }
             
-            else if (RP_Money[client] < 1){
-            	PrintToChat(client, "You don't have money");
-            	return;
-            }
+			else if (RP_IsMurder_Lite(client)) {
+				PrintToChat(client, "You can't use this is");
+				return;
+			}
+            
+			else if (RP_Money[client] < 1){
+				PrintToChat(client, "You don't have money");
+				return;
+			}
             
             char buffer[32];
             GetMenuItem(menu, option, buffer, sizeof(buffer));
@@ -1860,10 +1870,15 @@ public int Select_withdrawtamount(Menu menu, MenuAction action, int client, int 
                 return;
             }
             
-            else if (RP_Bank[client] < 1){
-            	PrintToChat(client, "You don't have money");
-            	return;
-            }
+			else if (RP_IsMurder_Lite(client)) {
+				PrintToChat(client, "You can't use this is");
+				return;
+			}
+            
+			else if (RP_Bank[client] < 1){
+				PrintToChat(client, "You don't have money");
+				return;
+			}
             
             char buffer[32];
             GetMenuItem(menu, option, buffer, sizeof(buffer));
@@ -2089,6 +2104,11 @@ public Action sm_invitejob(int client, int args){
 		if (RP_IsBoss(client) && !RP_IsUnemployed(client)){
 			int target = AimTargetPlayer(client);
 			if (target != -1){
+				if (RP_IsMurder_Lite(target)) {
+					PrintToChat(client, "You can't use this is");
+					return Plugin_Handled;
+				}
+				
 				if (RP_IsUnemployed(target)){
 					g_jobid[target] = g_jobid[client];
 					g_kv.JumpToKey(g_jobid[target]);
@@ -2138,6 +2158,11 @@ stock void GetInfoEntity(int client) {
 
 public Action sm_leavejob(int client, int args){
 	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		if (RP_IsMurder_Lite(client)) {
+			PrintToChat(client, "You can't use this is");
+			return Plugin_Handled;
+		}
+		
 		if (!RP_IsUnemployed(client)){
 			RP_RemoveJob(client);
 			SetJobKV(client);
@@ -2151,6 +2176,11 @@ public Action sm_leavejob(int client, int args){
 public Action sm_myjob(int client, int args)
 {	
 	if (client && IsClientInGame(client)){
+		if (RP_IsMurder_Lite(client)) {
+			PrintToChat(client, "You can't use this is");
+			return Plugin_Handled;
+		}
+		
 		if (RP_IsBoss(client) && !RP_IsUnemployed(client)){
 			DB_LoadJobs(client);
 		} else PrintToChat(client, "You are not the boss!");
@@ -2360,6 +2390,14 @@ stock bool RP_IsMurder(int client){
 	if (RP_PVP[client] > 0 || RP_TargetTaser[client] || RP_Cuff[client]
 	|| RP_CuffTime[client] > 0 || RP_ArrestTime[client] > 0) {
 		//PrintToChat(client, "You can't use this is");
+		return true;
+	}
+	return false;
+}
+
+stock bool RP_IsMurder_Lite(int client){
+	if (RP_TargetTaser[client] || RP_Cuff[client]
+	|| RP_CuffTime[client] > 0 || RP_ArrestTime[client] > 0) {
 		return true;
 	}
 	return false;
