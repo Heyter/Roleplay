@@ -13,6 +13,9 @@
 "steal"						"1"					1 - ON; 0 - OFF 		// Steal money, press use [E]
 "pvp_amount"				"20"			// If player kill plus for pvp status
 "taser"						"1"				1 - ON; 0 - OFF				// Taser [sm_taser]
+"arrest"					"1"				1 - ON; 0 - OFF				// Allows to arrest the player
+"pvp_enabled"				"0"				1 - ON; 0 - OFF				// Allows the disable pvp
+"cuff"						"1"				1 - ON; 0 - OFF				// Allows to put cuffs on the criminal
 
 
 // * EXAMPLE JOB * //

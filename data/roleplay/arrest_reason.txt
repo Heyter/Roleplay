@@ -1,0 +1,12 @@
+"Reason"
+{
+	"Test"
+	{
+		"time_arrest"	"30"
+	}
+	
+	"Release"
+	{
+		"time_arrest"	"0"
+	}
+}
