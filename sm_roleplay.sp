@@ -4,6 +4,7 @@
 #include <colors_csgo>
 #include <cstrike>
 #include <devzones>
+#include <createspawns>
 #pragma newdecls required
 
 // * Fade Defines * //
@@ -32,11 +33,11 @@ ConVar Database_prefix;
 // * Player Global * //
 int RP_ID[MAXPLAYERS + 1], RP_Money[MAXPLAYERS + 1], RP_Bank[MAXPLAYERS + 1],
 	g_jobTarget[MAXPLAYERS + 1], RP_RespawnTime[MAXPLAYERS + 1], RP_Salary[MAXPLAYERS + 1],
-	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1], RP_Arrest[MAXPLAYERS + 1],
-	RP_PVP[MAXPLAYERS + 1], RP_TaserKV[MAXPLAYERS + 1];
+	RP_Steal[MAXPLAYERS + 1], RP_gTime[MAXPLAYERS + 1], RP_gTimeTaser[MAXPLAYERS + 1], RP_Arrest[MAXPLAYERS + 1],
+	RP_PVP[MAXPLAYERS + 1], RP_TaserKV[MAXPLAYERS + 1], RP_CuffKV[MAXPLAYERS + 1], RP_PVPStatus[MAXPLAYERS + 1];
 char g_jobid[MAXPLAYERS + 1][IDSIZE], g_rankid[MAXPLAYERS + 1][IDSIZE], g_sBuffer[MAX_NAME_LENGTH];
 float RP_LastMsg[MAXPLAYERS + 1];
-bool RP_Hud[MAXPLAYERS + 1];
+bool RP_Hud[MAXPLAYERS + 1], ply_connect[MAXPLAYERS + 1];
 
 // * KeyValues - jobs.txt * //
 KeyValues g_kv;
@@ -78,11 +79,21 @@ int ColorTazer[4] =  { 102, 102, 204, 255 };
 bool RP_TargetTaser[MAXPLAYERS + 1]; 
 int RP_TaserTime[MAXPLAYERS + 1];
 
+// * Arrest reason * //
+#define MAXREASONS			50
+#define RP_REASON_PREFIX 	"\x03[RP Arrest]"
+KeyValues kv_arrest;
+char arrest_reason[MAXREASONS][64];
+int arrest_time[MAXREASONS], index_count = 0, RP_ArrestTime[MAXPLAYERS + 1],
+	RP_CuffTime[MAXPLAYERS + 1];
+bool RP_Cuff[MAXPLAYERS + 1];
+float g_fCuffDist[MAXPLAYERS + 1][3];
+
 // * Plugin info * //
 public Plugin info = {
 	author = "Hikka, Kailo, Exle",
 	name = "[SM] Roleplay mod",
-	version = "alpha 0.10",
+	version = "alpha 0.25",
 	url = "https://github.com/Heyter/Roleplay",
 };
 
@@ -104,6 +115,10 @@ public void OnPluginStart(){
 	BuildJobsMenu();
 	// * KeyValues - settings.txt * //
 	LoadKVSettings();
+	// * KeyValues - arrest_reason.txt * //
+	LoadArrestReason();
+	
+	RegConsoleCmd("sm_rptest", sm_rptest);
 	
 	RegConsoleCmd("sm_dropmoney", sm_dropmoney, "sm_dropmoney <amount>");
 	RegConsoleCmd("sm_hud", sm_hud, "Open RP hud menu");
@@ -111,6 +126,7 @@ public void OnPluginStart(){
 	RegConsoleCmd("sm_leavejob", sm_leavejob, "Leave job");
 	RegConsoleCmd("sm_myjob", sm_myjob, "Job menu, only boss");
 	RegConsoleCmd("sm_taser", sm_taser);
+	RegConsoleCmd("sm_cuff", sm_cuff, "Handcuffs");
 
 	RegAdminCmd("sm_jobs", Cmd_Jobs, ADMFLAG_ROOT, "Set job for player");
 	RegAdminCmd("sm_reloadsettings", sm_ReloadSettings, ADMFLAG_ROOT, "Reload config settings.txt");
@@ -129,6 +145,8 @@ public void OnPluginStart(){
 	HookEvent("round_start", Event_RoundStart);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Pre);
+	
+	for (int i = 1; i <= MaxClients; i++) RP_PVP[i] = 100;
 	
 	CreateTimer(1.0, OnEverySecond, _, TIMER_REPEAT);
 }
@@ -194,24 +212,33 @@ public void OnClientPutInServer(int client) {
 	CreateTimer(1.0, Timer_1, client);
 	
 	ResetVariables(client);
-	SDKHookEx(client, SDKHook_WeaponEquip, OnWeaponEquip);
+	SDKHookEx(client, SDKHook_WeaponCanUse, OnWeaponCanUse);
 	SDKHookEx(client, SDKHook_OnTakeDamage, OnTakeDamage);
+	SDKHookEx(client, SDKHook_WeaponDrop, OnWeaponDrop);
 	DB_OnClientPutInServer(client);
+}
+
+public Action OnWeaponDrop(int client, int weapon){
+	if (ply_connect[client]) return Plugin_Handled;
+	return Plugin_Continue;
 }
 
 public Action Timer_1(Handle timer, any client)
 {
 	if (client && IsClientInGame(client)){
+		ply_connect[client] = true;
 		ChangeClientTeam(client, 1);
+		SetEntProp(client, Prop_Send, "m_fFlags", 66);		// freez camera
+		ScreenFade(client, FFADE_OUT, DEATH_COLOR, 1, RoundToFloor(40 - 1.0));
 	}
 	CreateTimer(5.0, Timer_2, client);
 }
 
 public Action Timer_2(Handle timer, any client)
 {
-	if (client && IsClientInGame(client)) 
-	{
+	if (client && IsClientInGame(client)) {
 		ChangeClientTeam(client, 2);
+		ply_connect[client] = false;
 	}
 }
 
@@ -221,6 +248,8 @@ public void OnClientDisconnect(int client){
 	}
 	DB_SaveClient(client);
 	SDKUnhook(client, SDKHook_OnTakeDamage, OnTakeDamage);
+	SDKUnhook(client, SDKHook_WeaponCanUse, OnWeaponCanUse);
+	SDKUnhook(client, SDKHook_WeaponDrop, OnWeaponDrop);
 }
 
 public void OnMapStart(){
@@ -649,8 +678,11 @@ public void ResetVariables(int client){
 	SetRespawnTimeKV(client);
 	SetSalaryMoneyKV(client);
 	RP_LastMsg[client] = 0.0;
-	RP_gTime[client] = 0;
+	RP_gTime[RP_gTimeTaser[client]] = 0;
 	RP_PVP[client] = -1;		// после удлить и добавить в БД
+	RP_CuffTime[client] = -1;
+	RP_Cuff[client] = false;	// сделать провверку, если у игрока наручники то сжает в тюрму
+	RP_ArrestTime[client] = -1;
 	
 	RP_Hud[client] = true;
 	
@@ -988,8 +1020,11 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	ScreenFade(client);					// Fade creen if player spawn
 	SetStealKV(client);					// Set steal kv
 	SetArrestKV(client);				// Set arrest kv
-	TaserSettings(client);				// Reset taser settings
 	SetTaserKV(client);					// Set taser KV
+	SetCuffKV(client);					// Set cuff KV
+	GetPvPStatus(client);				// Get pvp status
+	CuffSettings_Spawn(client);			// Reset cuff settings
+	TaserSettings(client);				// Reset taser settings
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -997,6 +1032,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 		attacker = GetClientOfUserId(event.GetInt("attacker"));
 	SetRespawnTimeKV(client);			// Set respawn time
 	ScreenFade(client, FFADE_OUT, DEATH_COLOR, 2, RoundToFloor(RP_RespawnTime[client] - 1.0));				// Fade screen if player dead
+	SetEntProp(client, Prop_Send, "m_fFlags", 66);		// freez camera
 	
 	int iDropMoney = view_as<bool>(g_settingsKV.GetNum("dropmoney", 1));
 	if (iDropMoney){						// Enable/Disable dropmoney
@@ -1019,7 +1055,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 			Drop_Money(client, dropmoney);
 		}
 	}
-	if (attacker != client) SetPvPKV(client, attacker); 			// если игрок убил игрока, то добавляем ему к RP_PVP[client];
+	if (attacker != client && RP_PVPStatus[attacker] != 0) SetPvPKV(client, attacker); 			// если игрок убил игрока, то добавляем ему к RP_PVP[client];
 }
 
 void RegCvars(){
@@ -1406,6 +1442,8 @@ public Action OnEverySecond(Handle timer) {
 				GetInfoEntity(i);			// Print Hint player id
 				RP_TaserTimer(i);
 				PVP_Status(i);
+				RP_ArrestTimer(i);
+				RP_CuffTimer(i);
 			}
 		}
 		Timer_Salary();
@@ -1478,7 +1516,7 @@ void SetTeamKV(int client){
 	if (client && IsClientInGame(client)){
 		char branch_team[64]; int team;
 		FormatEx(branch_team, sizeof(branch_team), "%s/%s/team", g_jobid[client], g_rankid[client]);
-		team = g_kv.GetNum(branch_team);
+		team = g_kv.GetNum(branch_team, 2);
 		if (team != 0){
 			if (GetClientTeam(client) != team){
 				CS_SwitchTeam(client, team);
@@ -1490,7 +1528,7 @@ void SetTeamKV(int client){
 void SetRespawnTimeKV(int client){
 	char sRespawn[64]; int tRespawn;
 	FormatEx(sRespawn, sizeof(sRespawn), "%s/%s/respawn_time", g_jobid[client], g_rankid[client]);
-	tRespawn = g_kv.GetNum(sRespawn);
+	tRespawn = g_kv.GetNum(sRespawn, 5);
 	RP_RespawnTime[client] = tRespawn;
 }
 
@@ -1555,6 +1593,13 @@ void SetPvPKV(int client, int attacker){
 	}
 }
 
+void GetPvPStatus(int client) {
+	char sPvPStatus[64]; int tPvPStatus;
+	FormatEx(sPvPStatus, sizeof(sPvPStatus), "%s/%s/pvp_enabled", g_jobid[client], g_rankid[client]);
+	tPvPStatus = g_kv.GetNum(sPvPStatus, 1);
+	RP_PVPStatus[client] = tPvPStatus;
+}
+
 void SetTaserKV(int client){
 	char sTaser[64]; int tTaser;
 	FormatEx(sTaser, sizeof(sTaser), "%s/%s/taser", g_jobid[client], g_rankid[client]);
@@ -1562,9 +1607,16 @@ void SetTaserKV(int client){
 	RP_TaserKV[client] = tTaser;
 }
 
+void SetCuffKV(int client){
+	char sCuff[64]; int tCuff;
+	FormatEx(sCuff, sizeof(sCuff), "%s/%s/cuff", g_jobid[client], g_rankid[client]);
+	tCuff = g_kv.GetNum(sCuff, 0);
+	RP_CuffKV[client] = tCuff;
+}
+
 // Thanks Kailo
 void GiveWeaponKV(int client){
-    if (client && IsClientInGame(client)){
+    if (client && IsClientInGame(client) && IsPlayerAlive(client)){
         g_kv.JumpToKey(g_jobid[client]);
         g_kv.JumpToKey(g_rankid[client]);
         if (g_kv.JumpToKey("tools") && g_kv.GotoFirstSubKey(false)) {
@@ -1927,6 +1979,11 @@ stock void ShowPanel(int client) {
 		panel.DrawText(text);
 	}
 	
+	if (RP_ArrestTime[client] > 0) {
+		Format(text, sizeof(text), "Arrest time: %i", RP_ArrestTime[client]);
+		panel.DrawText(text);
+	}
+	
 	if (text_hud[0]){
 		panel.DrawText(text_hud);
 	} else {
@@ -1979,15 +2036,16 @@ public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &dam
 	char weapon[32];
 	GetClientWeapon(attacker, weapon, sizeof(weapon));
 
-	if (strcmp(weapon, "knife") == 0)
+	if (StrContains(weapon, "knife") != -1)
 	{
-		if (RP_Arrest[attacker] != 0){
-			if (RP_PVP[victim] > 0) PrintToChatAll("[RP] Был арестован и посажен в тюрьму: %N", victim);
-			switch (GetClientTeam(attacker)){
-				case 3: {
-					damage = 0.0;
-					return Plugin_Changed;
+		switch (GetClientTeam(attacker)) {
+			case 3: {
+				if (RP_Arrest[attacker] != 0){
+					if (RP_Cuff[victim] && RP_CuffTime[victim] == -1) RP_ReasonMenu(attacker, victim);
+					else PrintToChat(attacker, "Наденьте наручники");
 				}
+				damage = 0.0;
+				return Plugin_Changed;
 			}
 		}
 	}
@@ -2057,6 +2115,10 @@ void SetJobKV(int client){
 	SetTeamKV(client);
 	SetSalaryMoneyKV(client);
 	SetStealKV(client);
+	SetArrestKV(client);
+	SetTaserKV(client);
+	SetCuffKV(client);
+	GetPvPStatus(client);
 	if (IsPlayerAlive(client)) SetModelKV(client);
 }
 
@@ -2295,8 +2357,9 @@ stock void RP_StealMoney(int client, int ent){
 }
 
 stock bool RP_IsMurder(int client){
-	if (RP_PVP[client] > 0 || RP_TargetTaser[target]) {
-		PrintToChat(client, "You can't use this is");
+	if (RP_PVP[client] > 0 || RP_TargetTaser[client] || RP_Cuff[client]
+	|| RP_CuffTime[client] > 0 || RP_ArrestTime[client] > 0) {
+		//PrintToChat(client, "You can't use this is");
 		return true;
 	}
 	return false;
@@ -2304,39 +2367,47 @@ stock bool RP_IsMurder(int client){
 
 public Action sm_taser(int client, int args){
 	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
-		if (RP_TaserKV[client] != 0) RP_Taser(client);
+		int taser_realtime,
+			iTaserRealTime = view_as<int>(g_settingsKV.GetNum("cooldown_taser", 20));
+		if (((taser_realtime = GetTime()) - RP_gTimeTaser[client]) < iTaserRealTime){
+			PrintToChat(client, "Wait %i's and try again.", (iTaserRealTime - (taser_realtime - RP_gTimeTaser[client])));
+			return Plugin_Handled;
+		}
+		
+		if (RP_TaserKV[client] != 0) 
+			RP_Taser(client);
+		else PrintToChat(client, "You don't have taser");
 	}
 	return Plugin_Handled;
 }
 
 stock void RP_Taser(int client){
-	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
-		int target = AimTargetPlayer(client);
-		if (target != -1 && strcmp(g_jobid[target], g_jobid[client]) != 0) {
-			if (!RP_TargetTaser[target]) {
-				float origin[3], clientent[3];
-				GetClientAbsOrigin(target, origin);
-				GetClientAbsOrigin(client, clientent);
-				float distance = GetVectorDistance(origin, clientent);
-				int max_distance_taser = view_as<int>(g_settingsKV.GetNum("distance_taser", 500));
-				if (distance <= max_distance_taser){
-					int taser_time = view_as<int>(g_settingsKV.GetNum("taser_time", 20));
-					RP_TargetTaser[target] = true;
-					RP_TaserTime[target] = taser_time;
-					float target_ent[3], attacker_ent[3];
-					GetEntPropVector(target, Prop_Send, "m_vecOrigin", target_ent);
-					GetEntPropVector(client, Prop_Send, "m_vecOrigin", attacker_ent);
-					attacker_ent[2] += 45;
-					target_ent[2] += 45;
-					TE_SetupBeamPoints(attacker_ent, target_ent, g_modelLaser, 0, 1, 0, 1.0, 20.0, 0.0, 2, 5.0, ColorTazer, 3);
-					TE_SendToAll();
-					SetEntityMoveType(target, MOVETYPE_NONE);
-					SetEntProp(target, Prop_Send, "m_fFlags", 66);
-					SetEntityRenderMode(target, RENDER_TRANSCOLOR);
-					SetEntityRenderColor(target, 0, 255, 183, 200);
-					RP_DropWeapons(target);
-					ScreenFade(target, FFADE_OUT, DEATH_COLOR, 1, RoundToFloor(10 - 1.0));
-				}
+	int target = AimTargetPlayer(client);
+	if (target != -1 && strcmp(g_jobid[target], g_jobid[client]) != 0) {
+		if (!RP_TargetTaser[target]) {
+			float origin[3], clientent[3];
+			GetClientAbsOrigin(target, origin);
+			GetClientAbsOrigin(client, clientent);
+			float distance = GetVectorDistance(origin, clientent);
+			int max_distance_taser = view_as<int>(g_settingsKV.GetNum("distance_taser", 500));
+			if (distance <= max_distance_taser){
+				RP_gTimeTaser[client] = GetTime();
+				int taser_time = view_as<int>(g_settingsKV.GetNum("taser_time", 20));
+				RP_TargetTaser[target] = true;
+				RP_TaserTime[target] = taser_time;
+				float target_ent[3], attacker_ent[3];
+				GetEntPropVector(target, Prop_Send, "m_vecOrigin", target_ent);
+				GetEntPropVector(client, Prop_Send, "m_vecOrigin", attacker_ent);
+				attacker_ent[2] += 45;
+				target_ent[2] += 45;
+				TE_SetupBeamPoints(attacker_ent, target_ent, g_modelLaser, 0, 1, 0, 1.0, 20.0, 0.0, 2, 5.0, ColorTazer, 3);
+				TE_SendToAll();
+				SetEntityMoveType(target, MOVETYPE_NONE);
+				SetEntProp(target, Prop_Send, "m_fFlags", 66);
+				SetEntityRenderMode(target, RENDER_TRANSCOLOR);
+				SetEntityRenderColor(target, 0, 255, 183, 200);
+				RP_DropWeapons(target);
+				ScreenFade(target, FFADE_OUT, DEATH_COLOR, 1, RoundToFloor(10 - 1.0));
 			}
 		}
 	}
@@ -2364,16 +2435,228 @@ stock void RP_DropWeapons(int client){
 stock void TaserSettings(int client){
 	SetEntityMoveType(client, MOVETYPE_WALK);
 	SetEntProp(client, Prop_Send, "m_fFlags", 0);
-	SetEntityRenderColor(client, 255, 255, 255, 255);
+	if (RP_Cuff[client] != true) 
+		SetEntityRenderColor(client, 255, 255, 255, 255);
+	else
+		SetEntityRenderColor(client, 217, 255, 0, 200);
 	RP_TargetTaser[client] = false;
 	RP_TaserTime[client] = -1;
 }
 
-public Action OnWeaponEquip(int client, int weapon) {
-	if (RP_TargetTaser[client] != false) {
+public Action OnWeaponCanUse(int client, int weapon) {
+	if (RP_TargetTaser[client] != false || RP_Cuff[client] != false) {
 		char sWeapons[32];
 		GetEntityClassname(weapon, sWeapons, sizeof(sWeapons));
 		if (strcmp(sWeapons[7], "knife") != 0) return Plugin_Handled;
 	}
 	return Plugin_Continue;
 }
+
+void RP_ReasonMenu(int client, int target){
+	Menu menu = new Menu(Menu_Arrest_select);
+	char buffer[64], i_string[8];
+	for (int i = 0; i < index_count; i++){
+		FormatEx(i_string, sizeof(i_string), "%i-%i", i, GetClientUserId(target));
+		if (arrest_time[i] != 0) {
+			FormatEx(buffer, sizeof(buffer), "%s / time: %i", arrest_reason[i], arrest_time[i]);
+			menu.AddItem(i_string, buffer);
+		} else {
+			if (RP_ArrestTime[target] != -1) {
+				FormatEx(buffer, sizeof(buffer), "%s", arrest_reason[i]);
+				menu.AddItem(i_string, buffer);
+			} else {
+				FormatEx(buffer, sizeof(buffer), "%s", arrest_reason[i]);
+				menu.AddItem(i_string, buffer, ITEMDRAW_DISABLED);
+			}
+		}
+	}
+	menu.SetTitle("Choose reason [ %N ]", target);
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Menu_Arrest_select(Menu menu, MenuAction action, int client, int option){
+	switch (action) {
+		case MenuAction_End: delete menu;
+		case MenuAction_Select: {
+			char sInfo[32], buffer[2][32];
+			menu.GetItem(option, sInfo, sizeof(sInfo));
+			ExplodeString(sInfo, "-", buffer, 2, 32);
+			int index = StringToInt(buffer[0]),
+				target = StringToInt(buffer[1]);
+				
+			if ((target = GetClientOfUserId(target)) == 0) {
+				PrintToChat(client, "Client (userid: %i) is no longer available.", target);
+				return;
+			}
+			
+			if (arrest_time[index] != 0) {
+				PrintToChatAll("\x03%N \x01был арестован. Причина: \x04%s", target, arrest_reason[index]);
+				RP_ArrestTime[target] = arrest_time[index];
+				RP_Cuff[target] = true;
+				JailSettings(target);
+				ScreenFade(target);
+				RP_TeleportToCell(target);
+			} else {
+				PrintToChatAll("\x03%N \x01выпущен из тюрьмы.", target);
+				RP_ArrestTime[target] = -1;
+				RP_Cuff[target] = false;
+				JailSettings(target);
+				ScreenFade(target);
+				RP_TeleportToExitCell(target);
+			}
+		}
+	}
+}
+
+public void LoadArrestReason()
+{
+	kv_arrest = new KeyValues("Reason");
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), "data/roleplay/arrest_reason.txt");
+	if (!kv_arrest.ImportFromFile(path)) SetFailState("Can't read %s", path);
+
+	kv_arrest.Rewind();
+
+	if (!kv_arrest.GotoFirstSubKey()) SetFailState("There are no items listed in arrest_reason.txt, or there is an error with the file.");
+	
+	int index = 0;
+	do
+	{
+		kv_arrest.GetSectionName(arrest_reason[index], sizeof(arrest_reason[]));
+		arrest_time[index] = kv_arrest.GetNum("time_arrest", 30);
+		
+		index++;
+
+	} while (kv_arrest.GotoNextKey() && (index <= MAXREASONS));
+	
+	index_count = index;
+
+	kv_arrest.Rewind();
+	
+	PrintToServer("%s Arrest reasons Loaded", RP_REASON_PREFIX);
+	PrintToServer("%s %i Arrest reasons were detected.", RP_REASON_PREFIX, index_count);
+}
+
+stock void RP_ArrestTimer(int client){
+	if (RP_ArrestTime[client] > 0) RP_ArrestTime[client]--;
+	switch (RP_ArrestTime[client]){
+		case 0: {
+			PrintToChatAll("\x03%N \x01вышел из тюрьмы.", client);
+			RP_ArrestTime[client] = -1;
+			RP_Cuff[client] = false;
+			JailSettings(client);
+			ScreenFade(client);
+			RP_TeleportToExitCell(client);
+		}
+	}
+}
+
+stock void RP_CuffTimer(int client){
+	if (IsPlayerAlive(client)) {
+		if (RP_CuffTime[client] > 0) RP_CuffTime[client]--;
+		switch (RP_CuffTime[client]){
+			case 0: {
+				CuffSettings_End(client);
+				RP_CuffTime[client] = -1;
+			}
+		}
+	}
+}
+
+public Action sm_cuff(int client, int args){
+	if (client && IsClientInGame(client) && IsPlayerAlive(client)){
+		switch (RP_CuffKV[client]){
+			case 0: {
+				PrintToChat(client, "You don't have cuffs");
+				return Plugin_Handled;
+			}
+		}
+			
+		int target = AimTargetPlayer(client);
+		if (target != -1) {
+			float origin[3];
+			GetClientAbsOrigin(target, origin);
+			GetClientAbsOrigin(client, g_fCuffDist[client]);
+			float distance = GetVectorDistance(origin, g_fCuffDist[client]);
+			if (distance <= MIN_DISTANCE_USE && RP_CuffTime[target] == -1){
+				if (!RP_IsMurder(target) || strcmp(g_jobid[target], g_jobid[client]) == 0)
+					return Plugin_Handled;
+					
+				if (RP_Cuff[target] != true) {
+					TaserSettings(target);
+					ScreenFade(target);
+					RP_Cuff[target] = true;
+					CuffSettings_Player(client);
+					CuffSettings_Player(target);
+					PrintToChat(client, "Одеваем наручники: %N", target);
+					float cuff_speed = view_as<float>(g_settingsKV.GetFloat("cuff_speed", 0.5));
+					SetEntPropFloat(target, Prop_Data, "m_flLaggedMovementValue", cuff_speed);
+					SetEntityRenderMode(target, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(target, 217, 255, 0, 200);
+					RP_DropWeapons(target);
+				} else {
+					TaserSettings(target);
+					ScreenFade(target);
+					RP_Cuff[target] = false;
+					CuffSettings_Player(client);
+					CuffSettings_Player(target);
+					PrintToChat(client, "Снимаем наручники: %N", target);
+					SetEntPropFloat(target, Prop_Data, "m_flLaggedMovementValue", 1.0);
+					SetEntityRenderMode(target, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(target, 255, 255, 255, 255);
+				}
+			}
+		}
+	}
+	return Plugin_Handled;
+}
+
+stock void CuffSettings_End(int client) {
+	SetEntProp(client, Prop_Data, "m_takedamage", 2, 1);
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	SetEntProp(client, Prop_Send, "m_fFlags", 0);
+}
+
+stock void CuffSettings_Player(int client) {
+	SetEntProp(client, Prop_Data, "m_takedamage", 0, 1);
+	int cuff_duration = view_as<int>(g_settingsKV.GetNum("cuff_duration", 5));
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", cuff_duration);
+	SetEntProp(client, Prop_Send, "m_fFlags", 66);
+	RP_CuffTime[client] = cuff_duration;
+}
+
+stock void CuffSettings_Spawn(int client) {
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	SetEntProp(client, Prop_Send, "m_fFlags", 0);
+	//SetEntityRenderColor(client, 255, 255, 255, 255);
+	RP_CuffTime[client] = -1;
+	RP_Cuff[client] = false;
+}
+
+stock void JailSettings(int client){
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	SetEntProp(client, Prop_Send, "m_fFlags", 0);
+	RP_CuffTime[client] = -1;
+	SetEntityMoveType(client, MOVETYPE_WALK);
+	if (RP_Cuff[client] != true) 
+		SetEntityRenderColor(client, 255, 255, 255, 255);
+	else
+		SetEntityRenderColor(client, 217, 255, 0, 200);
+	RP_TargetTaser[client] = false;
+	RP_TaserTime[client] = -1;
+}
+
+public Action sm_rptest(int client, int args){
+	if (client) {
+		PrintToChat(client, "%i", RP_PVPStatus[client]);
+		PrintToChat(client, "RP_Arrest: %i", RP_Arrest[client]);
+	}
+	return Plugin_Handled;
+}
+
+//SetClientListeningFlags(client, VOICE_MUTED);
+//SetClientListeningFlags(client, VOICE_NORMAL);
