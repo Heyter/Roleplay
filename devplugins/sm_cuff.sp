@@ -58,12 +58,16 @@ public Action OnEverySecond(Handle timer) {
 Action Stop(int client, bool typemsg) {
 	if (typemsg) {
 		int revived = AimTargetPlayer(client);
-		if (revived != -1) PrintToChat(client, "Вы прекратили арест \x04%N", RP_gCuffTarget[client]);
+		if (revived != -1) {
+			SetEntityMoveType(RP_gCuffTarget[client], MOVETYPE_WALK);
+			PrintToChat(client, "Вы прекратили арест \x04%N", RP_gCuffTarget[client]);
+		}
 	}
 	SendProgressBar(client, 0);
 	RP_gCuffTime[client] = 0;
 	RP_gCuffTarget[client] = 0;
 	SetEntityMoveType(client, MOVETYPE_WALK);
+	SetEntityMoveType(RP_gCuffTarget[client], MOVETYPE_WALK);
 	return Plugin_Handled;
 }
 
@@ -87,7 +91,8 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 }
 
 bool CuffTarget(int client, int target, int revived) {
-	if (!GetDist(client, target, radius) || !IsPlayerAlive(target)) return false;
+	if (!GetDist(client, target, radius) || !IsPlayerAlive(target)
+	|| !(GetEntityFlags(target) & FL_ONGROUND)) return false;
 	
 	int realtime_cuff;
 	if (((realtime_cuff = GetTime()) - RP_gTimeCuff[client]) < 15){
