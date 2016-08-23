@@ -5,12 +5,13 @@ int RP_gCuffTime[MAXPLAYERS + 1], RP_gCuffTarget[MAXPLAYERS + 1], RP_Cuff[MAXPLA
 float radius = 100.0;	// radius cuff
 int rtime = 5;			// time cuff
 int RP_gTimeCuff[MAXPLAYERS + 1];
+bool RP_CuffProtection[MAXPLAYERS + 1];
 
 public Plugin porno = {
 	author = "Hikka",
 	name = "[RP:Module] cuff",
 	description = "experimental plugin - cuff for roleplay",
-	version = "0.01",
+	version = "0.02",
 	url = "https://github.com/Heyter/Roleplay/devplugins",
 };
 
@@ -33,6 +34,7 @@ public void OnPluginStart(){
 public void OnClientPutInServer(int client) {
 	Stop(client, false);
 	RP_gTimeCuff[client] = 0;
+	RP_CuffProtection[client] = false;
 }
 public void OnClientDisconnect(int client) {
 	Stop(client, false);
@@ -59,8 +61,8 @@ Action Stop(int client, bool typemsg) {
 	if (typemsg) {
 		int revived = AimTargetPlayer(client);
 		if (revived != -1) {
-			SetEntityMoveType(RP_gCuffTarget[client], MOVETYPE_WALK);
 			PrintToChat(client, "Вы прекратили арест \x04%N", RP_gCuffTarget[client]);
+			Stop(RP_gCuffTarget[client], false);
 		}
 	}
 	SendProgressBar(client, 0);
@@ -68,17 +70,26 @@ Action Stop(int client, bool typemsg) {
 	RP_gCuffTarget[client] = 0;
 	SetEntityMoveType(client, MOVETYPE_WALK);
 	SetEntityMoveType(RP_gCuffTarget[client], MOVETYPE_WALK);
+	RP_CuffProtection[client] = false;
+	RP_CuffProtection[RP_gCuffTarget[client]] = false;
 	return Plugin_Handled;
 }
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon) {
+	if (IsValidPlayer(client) && RP_CuffProtection[client]) {
+		if (buttons & IN_ATTACK || buttons & IN_ATTACK2) {
+			buttons &= ~IN_ATTACK;
+			buttons &= ~IN_ATTACK2;
+		}
+	}
+	
 	if (RP_gCuffTime[client] > 0
 	|| !IsPlayerAlive(client)
 	|| !(buttons & IN_USE)
 	|| !(GetEntityFlags(client) & FL_ONGROUND)) {
 		return Plugin_Continue;
 	}
-	
+		
 	int target = AimTargetPlayer(client);
 	for (int revived = 1; revived <= MaxClients; revived++) {
 		if (IsClientInGame(revived) && client != revived && target != -1) {
@@ -104,6 +115,8 @@ bool CuffTarget(int client, int target, int revived) {
 	RP_gCuffTime[client] = rtime;
 	SetEntityMoveType(client, MOVETYPE_NONE);
 	SetEntityMoveType(target, MOVETYPE_NONE);
+	RP_CuffProtection[client] = true;
+	RP_CuffProtection[target] = true;
 	
 	PrintToChat(client,	"Вы надеваете наручники на \x04%N", target);
 	PrintToChat(revived, "На вас надевает наручники \x04%N", client);
@@ -136,6 +149,7 @@ void Cuff_Player(int client, int revived = 0) {
 		SetEntityRenderColor(revived, 217, 255, 0, 200);
 		SetEntityMoveType(revived, MOVETYPE_WALK);
 	}
+	RP_CuffProtection[revived] = false;
 
 	PrintToChat(revived, "Вы были арестованы - \x04%N", client);
 	PrintToChat(client, "Вы арестовали - \x04%N", revived);
