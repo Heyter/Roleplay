@@ -1,7 +1,7 @@
 #pragma semicolon 1
 #include <roleplay>
 #pragma newdecls required
-int CuffTime[MAXPLAYERS + 1], CuffTarget[MAXPLAYERS + 1], RP_Cuff[MAXPLAYERS + 1];
+int RP_gCuffTime[MAXPLAYERS + 1], RP_gCuffTarget[MAXPLAYERS + 1], RP_Cuff[MAXPLAYERS + 1];
 float radius = 100.0;	// radius cuff
 int rtime = 5;			// time cuff
 int RP_gTimeCuff[MAXPLAYERS + 1];
@@ -41,13 +41,13 @@ public void OnClientDisconnect(int client) {
 public Action OnEverySecond(Handle timer) {
 	for (int i = 1; i < MaxClients; i++) {
 		if (IsValidPlayer(i)) {
-			if (0 < CuffTime[i]) {
-				if (IsValidPlayer(CuffTarget[i]) && IsPlayerAlive(CuffTarget[i])) {
-					if (GetEntityFlags(i) & FL_ONGROUND && GetClientButtons(i) & IN_USE && GetDist(i, CuffTarget[i], radius)) {
-						switch (CuffTime[i]) {
-							case 1: Cuff_Player(i, CuffTarget[i]);
+			if (0 < RP_gCuffTime[i]) {
+				if (IsValidPlayer(RP_gCuffTarget[i]) && IsPlayerAlive(RP_gCuffTarget[i])) {
+					if (GetEntityFlags(i) & FL_ONGROUND && GetClientButtons(i) & IN_USE && GetDist(i, RP_gCuffTarget[i], radius)) {
+						switch (RP_gCuffTime[i]) {
+							case 1: Cuff_Player(i, RP_gCuffTarget[i]);
 						}
-						CuffTime[i]--;
+						RP_gCuffTime[i]--;
 					} else Stop(i, true);
 				} else Stop(i, false);
 			}
@@ -58,17 +58,17 @@ public Action OnEverySecond(Handle timer) {
 Action Stop(int client, bool typemsg) {
 	if (typemsg) {
 		int revived = AimTargetPlayer(client);
-		if (revived != -1) PrintToChat(client, "Вы прекратили арест \x04%N", CuffTarget[client]);
+		if (revived != -1) PrintToChat(client, "Вы прекратили арест \x04%N", RP_gCuffTarget[client]);
 	}
 	SendProgressBar(client, 0);
-	CuffTime[client] = 0;
-	CuffTarget[client] = 0;
+	RP_gCuffTime[client] = 0;
+	RP_gCuffTarget[client] = 0;
 	SetEntityMoveType(client, MOVETYPE_WALK);
 	return Plugin_Handled;
 }
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon) {
-	if (CuffTime[client] > 0
+	if (RP_gCuffTime[client] > 0
 	|| !IsPlayerAlive(client)
 	|| !(buttons & IN_USE)
 	|| !(GetEntityFlags(client) & FL_ONGROUND)) {
@@ -95,8 +95,8 @@ bool CuffTarget(int client, int target, int revived) {
 		return false;
 	}
 	
-	CuffTarget[client] = target;
-	CuffTime[client] = rtime;
+	RP_gCuffTarget[client] = target;
+	RP_gCuffTime[client] = rtime;
 	SetEntityMoveType(client, MOVETYPE_NONE);
 	SetEntityMoveType(target, MOVETYPE_NONE);
 	
