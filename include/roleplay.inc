@@ -69,6 +69,14 @@ native int AimTargetPlayer(client);
 native bool RP_IsStartedDB();
 
 /**
+ * Is client handcuffed.
+ *
+ * @param client     Client index.
+ * @return           True if handcuffed, false otherwise.
+ */
+native bool RP_IsHandcuffed();
+
+/**
  * Global start timer
  *
  * @noreturn
@@ -97,5 +105,6 @@ public void __pl_roleplay_SetNTVOptional()
 	MarkNativeAsOptional("AimTargetProp");
 	MarkNativeAsOptional("AimTargetPlayer");
 	MarkNativeAsOptional("RP_IsStartedDB");
+	MarkNativeAsOptional("RP_IsHandcuffed");
 }
 #endif

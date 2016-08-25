@@ -17,5 +17,5 @@
 	"taser_time"			"5"				// taser time in seconds										[Default: 20]
 	"cooldown_taser"		"15"			// cooldown use taser											[Default: 30]
 	"cuff_duration"			"3"				// cuff duration (ProgressBarDuration)							[Default: 5]
-	"cuff_speed"			"0.3"			// speed in cuffs												[Default: 0.5]
+	//"cuff_speed"			"0.3"			// speed in cuffs												[Default: 0.5] - DISABLE
 }
